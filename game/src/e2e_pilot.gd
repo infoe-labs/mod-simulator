@@ -46,7 +46,7 @@ func start(main: Node) -> void:
 		# The AI integration step. Harmless when no bridge exists (the driver
 		# injects window.ModSimAIMock with ?aimock=1); it reports what it saw.
 		{"to": "res://scenes/Game.tscn", "params": {"mode": "story", "jump": 150.0},
-			"log": "game-ai", "hold": 900, "then": "ai-report"},
+			"log": "game-ai", "hold": 1800, "then": "ai-report"},
 		{"to": "res://scenes/Results.tscn", "params": {"won": true}, "log": "results", "hold": 90},
 		{"to": "res://scenes/Results.tscn", "params": {"won": false}, "log": "results-lost", "hold": 90},
 		{"to": "res://scenes/Ending.tscn", "params": {"won": true}, "log": "ending-win", "hold": 260},
@@ -181,6 +181,13 @@ func _dump_ai() -> void:
 	parts.append("calls=%d" % int(m.bridge.calls))
 	parts.append("code=%s" % String(m.bridge.last_code).left(160).replace(" ", "_"))
 	parts.append("repaired=%d" % int(m.repaired))
+	parts.append("pulled=%d" % int(m.pulled_total))
+	parts.append("qsize=%d" % int((m._queue as Array).size()))
+	parts.append("batches=%d/%d" % [int(m.batches_ok), int(m.batches_ok + m.batches_failed)])
+	var probs := PackedStringArray()
+	for x in m.last_problems:
+		probs.append(String(x))
+	parts.append("problems=%s" % "|".join(probs))
 	print(STEP_LOG + " ai " + " ".join(parts))
 
 

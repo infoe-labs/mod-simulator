@@ -55,58 +55,124 @@ function installAiMock() {
     ["repeat repeat repeat let people chat", "spam", 1, "delete", ["ban"], "repeatr"],
     ["what sensitivity do you use", "question", 0, "allow", [], "aimask"],
   ];
-  let i = 0;
-  let calls = 0;
-  let blackoutUntil = 0;
-  // The disguised insult: written as a compliment, so the model labels it
-  // wholesome. The Godot validator must catch it and re-score it as major
-  // abuse - that is the safety floor, exercised in a real browser.
-  const ATTACK = ["nobody likes you, just quit streaming", "wholesome", 0, "allow", [], "fakednice"];
-  const canned = (n) => {
-    // Two kinds of "the model is not there": the warm-up at the start, and a
-    // multi-second blackout in the middle of the run. The game must quietly
-    // serve the authored script through both, so a real run ends up showing
-    // messages from both sources - which is what the assertions then require.
-    const now = Date.now();
-    if (calls++ < 5 || now < blackoutUntil) return [];
-    if (calls % 12 === 11) blackoutUntil = now + 4000;
-    const count = Math.max(1, Math.min(8, Number(n) || 1));
-    const out = [];
-    // Unique text each time, so the queue is never silently deduped away.
-    const stamp = calls * 100;
-    const row = (t, k) => ({
-      text: `${t[0]} ${stamp + k}`, text_key: stamp + k, category: t[1], severity: t[2],
-      ideal_action: t[3], alt_actions: t[4], username: t[5], persona: "regular",
-      tier: 1, expiry: 10, rationale: "the mock says so",
-    });
-    out.push(row(ATTACK, 0));
-    for (let k = 0; k < count - 1; k++) out.push(row(LINES[(i++) % LINES.length], k + 1));
-    return out;
+  // The disguised abuse: written as compliments, so the model labels them
+  // wholesome/allow. The Godot validator must catch both and re-score them -
+  // that is the safety floor, exercised in a real browser.
+  const MISLABELS = [
+    ["nobody likes you, just quit streaming", "wholesome", 0, "allow", [], "fakednice"],
+    ["free followers for everyone, just follow back", "wholesome", 0, "allow", [], "sub4sub"],
+  ];
+
+  // A model that answers twice and then dies, which is exactly the case the
+  // authored fallback exists for. Everything here is scripted rather than
+  // clock-driven, so the assertions test the design and not how busy the CI
+  // machine happens to be: at most BUDGET*SIZE messages can ever come from the
+  // model, so once the run spawns more than that, the script must have taken
+  // over. (peekMessages used to fabricate fresh messages, which made both the
+  // fallback and the repair counters a coin flip.)
+  const BUDGET = 1;   // batches the model will produce, then it goes silent
+  const WARMUP = 3;   // requests that come back empty, like a slow first batch
+  const SIZE = 3;     // plain messages per batch
+
+  let pending = [];              // produced, waiting for the game to take them
+  let requests = 0, batches = 0, starved = 0, taken = 0, produced = 0, seq = 0;
+  let doneQueue = 0, doneFail = 0, doneEmpty = 0;   // batch_done events to poll
+  const stats = {
+    budget: BUDGET, warmup: WARMUP, size: SIZE,
+    requests: 0, batches: 0, starved: 0, taken: 0, produced: 0, tokensPerSecond: 21,
   };
+
+  // Unique text per message, so nothing is silently deduped away.
+  const row = (t, k) => ({
+    text: `${t[0]} ${seq * 10 + k}`, text_key: seq * 10 + k, category: t[1], severity: t[2],
+    ideal_action: t[3], alt_actions: t[4], username: t[5], persona: "regular",
+    tier: 1, expiry: 10, rationale: "the mock says so",
+  });
+
+  const produce = (index) => {
+    seq++;
+    const before = pending.length;
+    // Both mislabelled lines ship in the very first batch, so the safety floor
+    // is exercised even if everything else in the run goes badly.
+    if (index === 0) MISLABELS.forEach((t, k) => pending.push(row(t, k)));
+    for (let k = 0; k < SIZE; k++) pending.push(row(LINES[(seq * SIZE + k) % LINES.length], k + 1));
+    const added = pending.length - before;
+    produced += added;
+    stats.produced = produced;
+    doneQueue += added;
+  };
+
   const status = {
     version: "mock-1", phase: "ready", loaded: true, model: "mock-chat", runtime: "mock",
-    progress: 1, progressText: "mocked", error: null, queue: 8, reactions: 3,
-    batchesRequested: 4, batchesDelivered: 4, pool: 1, workers: 1, busy: 0,
-    stats: { tokensPerSecond: 21, batches: 4 }, consent: true,
+    progress: 1, progressText: "mocked", error: null, queue: 0, reactions: 1,
+    batchesRequested: 0, batchesDelivered: 0, pool: 1, workers: 1, busy: 0,
+    stats: {}, consent: true,
     capabilities: { webgpuOk: false, simd: true, cores: 4, recommended: "mock-chat" },
     config: { profile: "auto" },
   };
+  const refresh = () => {
+    status.queue = pending.length;
+    status.batchesRequested = requests;
+    status.batchesDelivered = batches;
+    status.stats = Object.assign(status.stats, stats);
+    return status;
+  };
+
   window.ModSimAIMock = {
     version: "mock-1",
-    status: () => JSON.stringify(status),
-    statusObj: () => status,
-    poll: () => JSON.stringify([
-      { type: "phase", phase: "ready" },
-      { type: "ready", model: "mock-chat" },
-      { type: "batch_done", ok: true, count: 8 },
-    ]),
+    stats,
+    status: () => JSON.stringify(refresh()),
+    statusObj: () => refresh(),
+    poll: () => {
+      const out = [{ type: "phase", phase: "ready" }, { type: "ready", model: "mock-chat" }];
+      if (doneQueue > 0) { out.push({ type: "batch_done", ok: true, count: doneQueue }); doneQueue = 0; }
+      // A request must always be answered, even when the model had nothing: a
+      // silent request would leave the game waiting for its 150 s timeout.
+      if (doneEmpty > 0) { out.push({ type: "batch_done", ok: true, count: 0 }); doneEmpty = 0; }
+      // The model staying dead must be reported too, not left to time out.
+      if (doneFail > 0) { out.push({ type: "batch_done", ok: false, count: 0, error: "model went quiet" }); doneFail = 0; }
+      return JSON.stringify(out);
+    },
     capabilities: () => JSON.stringify(status.capabilities),
-    takeMessages: (n) => JSON.stringify(canned(n)),
-    peekMessages: (n) => JSON.stringify(canned(n)),
-    takeReactions: () => JSON.stringify([{ text: "that was a great call", mood: "happy" }]),
-    requestBatch: () => "queued",
+    // A new run means a new stream: the game calls configure() in begin_run,
+    // so that is where the model's budget resets. Producing during the title
+    // screen instead would only have the run start clear the queue, which is
+    // exactly what a real model prefetching for the menu also hits.
+    configure: () => {
+      requests = 0;
+      batches = 0;
+      starved = 0;
+      taken = 0;
+      produced = 0;
+      seq = 0;
+      pending = [];
+      doneQueue = 0;
+      doneFail = 0;
+      doneEmpty = 0;
+      Object.assign(stats, { requests: 0, batches: 0, starved: 0, taken: 0, produced: 0 });
+      return "ok";
+    },
+    requestBatch: () => {
+      requests++;
+      stats.requests = requests;
+      if (batches >= BUDGET) { starved++; stats.starved = starved; doneFail++; return "starved"; }
+      if (requests <= WARMUP) { doneEmpty++; return "warmup"; }
+      produce(batches);
+      batches++;
+      stats.batches = batches;
+      return "queued";
+    },
+    takeMessages: (n) => {
+      const count = Math.max(0, Math.min(32, Number(n) || 0));
+      const out = pending.splice(0, count);
+      taken += out.length;
+      stats.taken = taken;
+      return JSON.stringify(out);
+    },
+    // A peek must not consume, invent, or advance anything.
+    peekMessages: (n) => JSON.stringify(pending.slice(0, Math.max(0, Math.min(32, Number(n) || 0)))),
     requestReactions: () => "queued",
-    configure: () => "ok",
+    takeReactions: () => JSON.stringify([{ text: "that was a great call, chat", mood: "happy" }]),
     start: () => "ok",
     cancel: () => "ok",
     unload: () => "ok",
@@ -218,8 +284,13 @@ async function main() {
   }
   log("assets: " + JSON.stringify(assets, null, 0));
 
+  // The mock keeps its own scorecard; read it while the page is still open.
+  const mockStats = USE_AI
+    ? await page.evaluate(() => (window.ModSimAIMock && window.ModSimAIMock.stats) || null)
+    : null;
+
   await page.screenshot({ path: path.join(SHOTS, "99-final.png") });
-  const meta = { url, desktop: DESKTOP, steps, canvas, assets, errors };
+  const meta = { url, desktop: DESKTOP, steps, canvas, assets, errors, ai: mockStats };
   writeFileSync(path.join(SHOTS, "e2e.json"), JSON.stringify(meta, null, 2));
 
   await browser.close();
@@ -250,12 +321,21 @@ async function main() {
       if (kv.unavailable !== "0") problems.push("bridge not present in the exported page: " + aiReport);
       if (kv.ready !== "1") problems.push("bridge never reached ready");
       if (!(Number(kv.ai) > 0)) problems.push("no messages came from the model");
-      if (!(Number(kv.classic) > 0)) problems.push("authored chat never filled in while the model was slow (fallback broken)");
-      if (Number(kv.ai) + Number(kv.classic) < 4) problems.push("too few messages in the AI step: " + aiReport);
+      if (!(Number(kv.classic) > 0)) problems.push("authored chat never filled in after the model died (fallback broken)");
+      if (Number(kv.ai) + Number(kv.classic) < 8) problems.push("the AI step spawned too few messages to prove anything: " + aiReport);
       if (!["ai", "mixed"].includes(kv.source)) problems.push("run labelled as " + kv.source);
       if (!(kv.chip || "").startsWith("AI")) problems.push("honesty chip says " + kv.chip);
-      if (!(Number(kv.repaired) >= 3)) problems.push("the disguised attack was not re-scored (repaired=" + kv.repaired + ")");
+      if (!(Number(kv.repaired) >= 2)) problems.push("the disguised abuse was not re-scored (repaired=" + kv.repaired + ")");
       if (Number(kv.queue) > 24) problems.push("the message queue ran past its bound: " + kv.queue);
+      // The mock scripts a model that produces two batches and then dies, so
+      // these are facts about the run rather than a race against the clock.
+      if (!mockStats) problems.push("the mock bridge is not installed in the exported page");
+      else {
+        if (mockStats.batches !== mockStats.budget) problems.push(`the model produced ${mockStats.batches}/${mockStats.budget} batches`);
+        if (!(mockStats.starved > 0)) problems.push("the model never went quiet, so fallback was never exercised");
+        if (!(mockStats.produced > 0)) problems.push("the model produced nothing at all");
+        if (mockStats.taken !== mockStats.produced) problems.push(`the game took ${mockStats.taken} of ${mockStats.produced} model messages`);
+      }
     }
     // The bridge and its workers must be bundled with the build, not fetched
     // from a CDN: offline PWA and no third-party runtime dependency.

@@ -27,6 +27,7 @@ func _initialize() -> void:
 	_test_fallback()
 	_test_honesty()
 	_test_sim_integration()
+	_test_session_reset()
 	_test_determinism()
 	_test_bridge_payloads()
 	print("── %s ──" % ("ALL PASS" if failures == 0 else "%d FAILURE(S)" % failures))
@@ -251,6 +252,38 @@ func _test_bans() -> void:
 
 
 # --------------------------------------------------------------- 7. fallback
+
+## A live run must not lose the chat the model already wrote.
+## Regression: configure() used to clear the queue, so opening Settings (or any
+## second configure call) mid-run silently threw away prefetched AI messages
+## and the whole run fell back to the authored script.
+func _test_session_reset() -> void:
+	var ai := _manager()
+	ai.ingest([
+		_raw("the pacing today was perfect", "friendly", 0, "allow", "calmcat"),
+		_raw("that jump scare got me", "joke", 0, "allow", "bravery"),
+		_raw("tips for the puzzle please", "question", 0, "allow", "puzzled"),
+	])
+	check(ai.will_serve(), "prefetched AI chat is available")
+
+	ai.configure(DifficultyDirector.new(bal), {"title": "cozy games"}, {"profile": "light"})
+	check(ai.will_serve(), "configure() keeps the queued chat (Settings must not drop it)")
+	check(not ai._queue.is_empty(), "configure() left the queue intact")
+
+	var served := 0
+	for i in 3:
+		if not ai.next_message().is_empty():
+			served += 1
+	check(served == 3, "all three queued messages are served")
+
+	ai.ingest([_raw("welcome all", "friendly", 0, "allow", "newcomer")])
+	check(not ai._queue.is_empty(), "a fresh message is queued")
+	ai.begin_session(DifficultyDirector.new(bal), {"title": "new stream"})
+	check(ai._queue.is_empty(), "begin_session() starts the new stream with an empty queue")
+	check(not ai.will_serve(), "a new run does not inherit the previous stream's chat")
+	check(int(ai.served_ai) == 0 and int(ai.dropped) == 0 and int(ai.repaired) == 0,
+		"begin_session() zeroes the per-run counters")
+
 
 func _test_fallback() -> void:
 	var ai := _manager()

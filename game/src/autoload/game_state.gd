@@ -72,19 +72,16 @@ func begin_run(mode: String, seed_value: int) -> Sim:
 	pending_seed = seed_value
 	sim = ContentDB.new_sim(mode, seed_value)
 	var manager := ai_manager()
-	manager.configure(null, {"title": "", "streamer": "Nori"}, {
+	var opts := {
 		"enabled": bool(SaveManager.setting("ai_enabled")),
 		"consented": bool(SaveManager.setting("ai_consent")),
 		"profile": String(SaveManager.setting("ai_profile")),
 		"model_id": String(SaveManager.setting("ai_model")),
-	})
+	}
+	manager.configure(sim.director, {"title": sim.title, "streamer": "Nori", "mode": mode}, opts)
 	sim.set_ai(manager)
-	manager.configure(sim.director, {"title": "", "streamer": "Nori"}, {
-		"enabled": bool(SaveManager.setting("ai_enabled")),
-		"consented": bool(SaveManager.setting("ai_consent")),
-		"profile": String(SaveManager.setting("ai_profile")),
-		"model_id": String(SaveManager.setting("ai_model")),
-	})
+	# One fresh session per run: this is the only place the queue is cleared.
+	manager.begin_session(sim.director, {"title": sim.title, "streamer": "Nori", "mode": mode})
 	return sim
 
 

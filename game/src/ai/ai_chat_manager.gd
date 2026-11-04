@@ -66,6 +66,10 @@ var served_ai := 0
 var served_classic := 0
 var dropped := 0
 var repaired := 0
+## Diagnostics for the browser gate: how many raw items the bridge handed over
+## in total, and why the last batch was rejected.
+var pulled_total := 0
+var last_problems: Array = []
 var batches_ok := 0
 var batches_failed := 0
 
@@ -95,6 +99,18 @@ func configure(new_director: DifficultyDirector, stream: Dictionary, opts: Dicti
 	if target > 0:
 		patch["batchTarget"] = target
 	bridge.configure(patch)
+	# Deliberately does NOT clear the queue: the player can open Settings (or
+	# change the model size) mid-run, and messages the model already wrote are
+	# still perfectly good chat. Wiping them was dropping AI chat on the floor.
+
+
+## Called once when a run starts: the recap, the queue and the counters all
+## belong to the previous stream, so they start over.
+func begin_session(new_director: DifficultyDirector, stream: Dictionary) -> void:
+	if new_director != null:
+		director = new_director
+	if not stream.is_empty():
+		stream_info = stream
 	_reset_run()
 
 
@@ -139,6 +155,7 @@ func _pull() -> void:
 	elif want <= 0:
 		return
 	var pulled := bridge.take_messages(want)
+	pulled_total += pulled.size()
 	if pulled.is_empty():
 		return
 	ingest(pulled)
@@ -339,6 +356,7 @@ func _note_recent(def: Dictionary) -> void:
 ## and by tests). Returns how many messages were accepted.
 func ingest(raw_batch: Variant) -> int:
 	var res := AIContent.validate_batch(raw_batch, catalog, banned, _tier_now(), 1)
+	last_problems = res.get("problems", [])
 	dropped += int(res.get("dropped", 0))
 	repaired += int(res.get("repaired", 0))
 	var accepted := 0
