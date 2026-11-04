@@ -1,0 +1,13 @@
+{
+  "name": "mod-simulator-ai-build",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build-time vendoring of the browser LLM runtimes (web-llm + wllama) into game/web/ai/vendor. Nothing here is needed at runtime.",
+  "scripts": {
+    "vendor": "./vendor.sh"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "0.2.87",
+    "@wllama/wllama": "3.8.1"
+  }
+}

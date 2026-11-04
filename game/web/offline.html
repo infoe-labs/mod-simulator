@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<!--
+  Shown by the service worker when the network is unavailable *and* the cached
+  shell is missing (a hard refresh after the cache was evicted). Kept tiny and
+  self-contained: no scripts, no network, no external fonts.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Streamer Moderator Simulator - offline</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #17122b; color: #f4f0ff;
+    font-family: ui-rounded, "Segoe UI", system-ui, -apple-system, sans-serif;
+    text-align: center; padding: 24px; box-sizing: border-box;
+  }
+  .card { max-width: 30rem; }
+  h1 { font-size: 1.5rem; letter-spacing: .08em; margin: 0 0 .75rem; }
+  p { font-size: 1.05rem; line-height: 1.5; color: #cfc6ee; margin: 0 0 1.25rem; }
+  button {
+    font: inherit; font-size: 1.05rem; min-height: 48px; padding: 0 26px;
+    border-radius: 14px; border: 2px solid #4a4070; background: #2c2745;
+    color: #f4f0ff; cursor: pointer;
+  }
+  button:active { transform: translateY(1px); }
+  .hint { font-size: .95rem; color: #9a91bd; margin-top: 1.25rem; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>OFFLINE</h1>
+    <p>The stream can&#39;t start without the game files. Reconnect once, load the
+       game, and after that it should run with no connection at all.</p>
+    <button onclick="location.reload()">Try again</button>
+    <p class="hint">Saved progress lives in this browser&#39;s storage, not on a server.</p>
+  </div>
+</body>
+</html>

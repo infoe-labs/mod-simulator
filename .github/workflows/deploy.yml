@@ -1,0 +1,149 @@
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Godot cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-cache
+          key: godot-${{ env.GODOT_VERSION }}-web-v1
+
+      - name: Install Godot + web export templates
+        run: |
+          set -e
+          V=$GODOT_VERSION
+          BASE=https://github.com/godotengine/godot/releases/download/${V}-stable
+          mkdir -p ~/godot-cache
+          if [ ! -x ~/godot-cache/godot ]; then
+            curl -sLo /tmp/godot.zip $BASE/Godot_v${V}-stable_linux.x86_64.zip
+            unzip -q /tmp/godot.zip -d /tmp/godotbin
+            mv /tmp/godotbin/Godot_v${V}-stable_linux.x86_64 ~/godot-cache/godot
+            chmod +x ~/godot-cache/godot
+          fi
+          TPL=~/.local/share/godot/export_templates/${V}.stable
+          mkdir -p $TPL
+          if [ ! -f ~/godot-cache/templates/web_nothreads_release.zip ]; then
+            curl -sLo /tmp/t.tpz $BASE/Godot_v${V}-stable_export_templates.tpz
+            unzip -q /tmp/t.tpz 'templates/web_*' 'templates/version.txt' -d /tmp/tpl
+            mv /tmp/tpl/templates ~/godot-cache/templates
+          fi
+          cp ~/godot-cache/templates/* $TPL/
+          ~/godot-cache/godot --version
+
+      - name: Import project
+        run: ~/godot-cache/godot --headless --path game --import
+
+      - name: Theme and palette gate
+        run: python3 tools/check_palette.py
+
+      - name: Logic, balance, smoke, layout, pause and AI tests
+        run: |
+          ~/godot-cache/godot --headless --path game -s res://tests/run_tests.gd
+          ~/godot-cache/godot --headless --path game -s res://tests/sim_tests.gd
+          timeout 300 ~/godot-cache/godot --headless --path game -s res://tests/smoke.gd
+          timeout 300 ~/godot-cache/godot --headless --path game -s res://tests/layout_audit.gd
+          timeout 300 ~/godot-cache/godot --headless --path game -s res://tests/pause_input.gd
+          timeout 300 ~/godot-cache/godot --headless --path game -s res://tests/ai_tests.gd
+
+      - name: Export Web build
+        run: |
+          mkdir -p dist
+          ~/godot-cache/godot --headless --path game --export-release "Web" ../dist/index.html
+          cp -r game/web/. dist/
+          rm -f dist/*.service.worker.js.map
+          test -f dist/index.html
+          test -f dist/index.wasm
+          test -f dist/index.pck
+          test -f dist/offline.html
+          # The AI subsystem must ship with the build: no CDN at runtime.
+          test -f dist/ai/ai_bridge.js
+          test -f dist/ai/ai_worker.js
+          test -f dist/ai/vendor/manifest.json
+          test -f dist/ai-lab.html
+          grep -q 'ai/ai_bridge.js' dist/index.html
+          ls -la dist
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+      # Separate artifact so the browser job can run against the same bytes
+      # without exporting twice.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: dist
+          retention-days: 3
+
+  # Boots the real exported build in headless Chromium, plays every screen with
+  # the in-game autopilot, and drives one run through a stubbed AI bridge, so a
+  # regression in the Godot<->JavaScript integration fails CI. The real model
+  # download (tools/e2e/ai_lab.mjs) stays opt-in: it pulls ~100 MB.
+  browser:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: dist
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright
+        working-directory: tools/e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Serve and drive the build
+        run: |
+          python3 tools/serve.py --dir dist --port 8000 &
+          sleep 3
+          node tools/e2e/e2e.mjs --url http://127.0.0.1:8000/
+          python3 tools/check_shots.py
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence
+          path: shots
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

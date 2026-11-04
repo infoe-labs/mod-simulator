@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Project icon: a laptop on a desk at night, chat bubbles on the screen.
+       Hand-written SVG, original artwork. The same motif is rasterised for the
+       PWA icons by tools/make_icons.py. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2452"/>
+      <stop offset="1" stop-color="#120e24"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
+  <circle cx="64" cy="56" r="34" fill="#63e6a8" opacity="0.13"/>
+  <rect x="30" y="34" width="68" height="46" rx="5" fill="#221d3a" stroke="#463c6e" stroke-width="3"/>
+  <rect x="36" y="41" width="30" height="7" rx="3.5" fill="#f4f0ff"/>
+  <rect x="36" y="53" width="20" height="7" rx="3.5" fill="#63e6a8"/>
+  <rect x="36" y="65" width="36" height="7" rx="3.5" fill="#ff7a8a"/>
+  <circle cx="86" cy="69" r="8" fill="#ffc857"/>
+  <path d="M82 69 l3 3 l6 -6" stroke="#1a1408" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M26 84 h76 l6 10 h-88 z" fill="#221d3a" stroke="#463c6e" stroke-width="2"/>
+  <circle cx="34" cy="24" r="3" fill="#63e6a8"/>
+  <circle cx="52" cy="20" r="3" fill="#ffc857"/>
+  <circle cx="70" cy="22" r="3" fill="#ff7a8a"/>
+  <circle cx="88" cy="20" r="3" fill="#8fd8ff"/>
+  <circle cx="104" cy="25" r="3" fill="#63e6a8"/>
+</svg>

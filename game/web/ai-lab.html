@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mod Sim · AI lab</title>
+<!--
+  Isolated proof that the in-game "AI Chat Mode" is doing real inference.
+
+  Nothing in this page is mocked: every line of chat and every judgement shown
+  here is a token-by-token completion from the model loaded in ai_worker.js.
+  It is the page the README tells you to open first, and tools/e2e/ai_lab.mjs
+  drives it headlessly (?auto=1) as the project's inference test.
+
+  Open it served, not from file://:   python3 tools/serve.py --port 8000
+  then                                   http://127.0.0.1:8000/ai-lab.html
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #14111f; color: #e8e3f2;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 18px 16px 60px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .3px; }
+  h2 { font-size: 13px; letter-spacing: 1.4px; text-transform: uppercase; color: #9d8fc0; margin: 26px 0 8px; }
+  .sub { color: #9d8fc0; margin: 0 0 18px; }
+  .card { background: #1d1830; border: 1px solid #2e2748; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 4px 0; vertical-align: top; }
+  td.k { color: #9d8fc0; width: 42%; }
+  .ok { color: #8fd6b6; } .bad { color: #ff9db0; } .warn { color: #ffd98a; }
+  button {
+    font: inherit; border: 0; border-radius: 12px; padding: 12px 16px; margin: 4px 6px 4px 0;
+    background: #3a2f57; color: #fff; min-height: 44px; cursor: pointer;
+  }
+  button.primary { background: #2f8f6a; }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=text], select, textarea {
+    font: inherit; width: 100%; padding: 12px; border-radius: 12px; min-height: 44px;
+    background: #14101f; color: #e8e3f2; border: 1px solid #3730523;
+  }
+  textarea { min-height: 88px; }
+  .bar { height: 12px; background: #14101f; border-radius: 8px; overflow: hidden; border: 1px solid #2e2748; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#7a5cff,#2f8f6a); transition: width .2s; }
+  pre { background: #100d1a; border-radius: 10px; padding: 10px; overflow: auto; font-size: 12.5px; margin: 8px 0 0; }
+  .msg { border-left: 3px solid #4a3f80; padding: 6px 10px; margin: 8px 0; background: #171327; border-radius: 0 10px 10px 0; }
+  .msg b { color: #a8c6ff; }
+  .tag { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: #9d8fc0; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .stat { font-variant-numeric: tabular-nums; }
+  label.chk { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+  #log { max-height: 180px; overflow: auto; font-size: 12px; color: #9d8fc0; }
+  .foot { color: #6f648f; font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Streamer Moderator Simulator — AI lab</h1>
+  <p class="sub">Proves the browser really runs the chat model. Real completions, no mocks.</p>
+
+  <h2>1 · Capabilities</h2>
+  <div class="card"><table id="caps"><tr><td class="k">probing…</td></tr></table></div>
+
+  <h2>2 · Model</h2>
+  <div class="card">
+    <div class="row">
+      <select id="model" style="flex:1 1 320px"></select>
+      <span id="modelmeta" class="tag"></span>
+    </div>
+    <label class="chk"><input type="checkbox" id="consent"> I agree to download the weights on this device
+      (<span id="size">?</span> MB, cached afterwards, game works offline after that)</label>
+    <div class="row">
+      <button id="load" class="primary">Load model</button>
+      <button id="unload">Unload</button>
+      <button id="clear">Delete downloaded weights</button>
+    </div>
+    <div class="bar"><i id="prog"></i></div>
+    <div id="loadstate" class="tag">not loaded</div>
+  </div>
+
+  <h2>3 · Generate chat</h2>
+  <div class="card">
+    <div class="row">
+      <button id="gen3" class="primary">Generate 3 chat messages</button>
+      <button id="gen12">Generate a batch of 12</button>
+      <button id="react">Generate 4 streamer lines</button>
+    </div>
+    <div id="gen"></div>
+    <pre id="genraw" hidden></pre>
+  </div>
+
+  <h2>4 · Classify a message</h2>
+  <div class="card">
+    <div class="k tag">viewer</div>
+    <input type="text" id="cuser" value="pixelkite">
+    <div class="tag" style="margin-top:8px">their earlier messages this stream (one per line)</div>
+    <textarea id="chistory">you're so bad at this game lol
+come on, dodge the thing
+this gameplay is painful to watch</textarea>
+    <div class="tag" style="margin-top:8px">the message to judge</div>
+    <input type="text" id="ctext" value="nobody likes you, just quit streaming already">
+    <div class="row"><button id="classify" class="primary">Classify</button></div>
+    <div id="cls"></div>
+  </div>
+
+  <h2>5 · Telemetry</h2>
+  <div class="card"><table id="telem"><tr><td class="k">idle</td></tr></table></div>
+
+  <h2>Event log</h2>
+  <div class="card"><div id="log"></div></div>
+
+  <p class="foot">
+    Runtime code (web-llm, wllama and the compiled model libraries) is served from this
+    origin — see <code>game/web/ai/vendor/</code>. Only the model weights come from a model
+    hub, and only after you tick the box above.
+  </p>
+</div>
+
+<script type="module">
+// The same bridge the game loads. Importing it registers window.ModSimAI.
+import './ai/ai_bridge.js';
+import { MODEL_CATALOG } from './ai/model_manager.js';
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+function log(line) {
+  const d = document.createElement('div');
+  d.textContent = new Date().toISOString().slice(11, 19) + '  ' + line;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+  console.log('[ailab] ' + line);
+}
+
+const results = { capabilities: null, model: null, messages: [], classification: null, telemetry: {} };
+window.__AILAB__ = results;
+
+function fmt(n, d = 1) { return (n == null || !isFinite(n)) ? '—' : Number(n).toFixed(d); }
+function yn(v, yes = 'yes', no = 'no') { return `<span class="${v ? 'ok' : 'bad'}">${v ? yes : no}</span>`; }
+
+function renderCaps(c) {
+  results.capabilities = c;
+  const gpuNote = c.hasWebGPU ? (c.webgpuOk ? 'usable' : (c.webgpu || 'unusable')) : 'not in this browser';
+  $('caps').innerHTML = [
+    ['WebGPU', yn(c.webgpuOk) + ` <span class="tag">${gpuNote}</span>`],
+    ['WebGL2 / ANGLE', yn(c.hasWebGL2) + ` <span class="tag">${(c.glRenderer || '').slice(0, 60)}</span>`],
+    ['WebAssembly SIMD', yn(c.hasWASM && c.hasSIMD)],
+    ['SharedArrayBuffer', yn(c.hasThreads) + ' <span class="tag">' + (c.crossOriginIsolated ? 'isolated' : 'single-thread') + '</span>'],
+    ['Worker', yn(c.worker)],
+    ['Device memory', (c.deviceMemoryGB != null ? c.deviceMemoryGB + ' GB' : 'hidden by browser')],
+    ['CPU cores', c.cores ?? '—'],
+    ['Platform', `${c.isIOS ? 'iOS' : c.isMobile ? 'mobile' : 'desktop'} · ${c.platform || ''}`],
+    ['Storage used / quota', c.storage ? `${(c.storage.usage / 1e6).toFixed(0)} MB / ${(c.storage.quota / 1e6).toFixed(0)} MB` : '—'],
+    ['Runtime code', '<span class="ok">served from this origin</span>'],
+  ].map(([k, v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join('');
+  log('capabilities: webgpu=' + (c.webgpuOk ? 'ok' : 'no') + ' simd=' + (c.hasSIMD ? 'y' : 'n') + ' cores=' + c.cores);
+}
+
+function renderModels(offer) {
+  const sel = $('model');
+  sel.innerHTML = '';
+  for (const m of offer) {
+    const o = document.createElement('option');
+    o.value = m.id;
+    o.textContent = `${m.family} · ${m.quant} · ${m.runtime}${m.usable ? '' : ' (not usable here)'}${m.recommended ? '  ← recommended' : ''}`;
+    o.disabled = !m.usable;
+    if (m.recommended) o.selected = true;
+    sel.appendChild(o);
+  }
+  const cur = MODEL_CATALOG.find((m) => m.id === sel.value) || {};
+  $('size').textContent = cur.downloadMB ?? '?';
+  $('modelmeta').textContent = cur.note || '';
+  sel.onchange = () => {
+    const e = MODEL_CATALOG.find((m) => m.id === sel.value) || {};
+    $('size').textContent = e.downloadMB ?? '?';
+    $('modelmeta').textContent = e.note || '';
+  };
+}
+
+function setProg(p, text) {
+  $('prog').style.width = Math.round((p || 0) * 100) + '%';
+  $('loadstate').textContent = (text || '') + '  ' + Math.round((p || 0) * 100) + '%';
+}
+
+if (!window.ModSimAI) {
+  log('FATAL: ai/ai_bridge.js did not load');
+} else {
+  window.ModSimAI.on((ev) => {
+    if (ev.type === 'capabilities') {
+      renderCaps(ev.capabilities);
+      renderModels((ev.offer || []).length ? ev.offer : MODEL_CATALOG.map((m) => ({
+        ...m, usable: m.runtime === 'webllm' ? !!(ev.capabilities && ev.capabilities.webgpuOk) : true,
+      })));
+    }
+    if (ev.type === 'progress') setProg(ev.progress, ev.message);
+    if (ev.type === 'consent_required') { log('consent required for ' + ev.model + ' (' + ev.downloadMB + ' MB)'); setProg(0, 'waiting for consent'); }
+    if (ev.type === 'ready') { log('model ready: ' + ev.model + ' on ' + ev.runtime); $('loadstate').textContent = 'ready · ' + ev.model + ' · ' + ev.runtime; setProg(1, 'ready'); }
+    if (ev.type === 'error') log('error: ' + (ev.message || (ev.problems || []).join('; ')));
+  });
+  // The bridge probes on its own timer; pick the result up whenever it lands.
+  const timer = setInterval(() => {
+    const st = JSON.parse(window.ModSimAI.status());
+    if (st.capabilities) {
+      clearInterval(timer);
+      renderCaps(st.capabilities);
+      renderModels(MODEL_CATALOG.map((m) => ({
+        ...m,
+        usable: m.runtime === 'webllm' ? !!st.capabilities.webgpuOk : !!(st.capabilities.hasWASM && st.capabilities.hasSIMD),
+      })));
+    }
+  }, 400);
+}
+
+$('load').onclick = async () => {
+  const modelId = $('model').value;
+  if (!$('consent').checked) { log('tick the download box first'); return; }
+  $('load').disabled = true;
+  setProg(0, 'starting');
+  const t0 = performance.now();
+  const r = await window.ModSimAI.request.load({ modelId, consent: true });
+  results.telemetry.loadSeconds = (performance.now() - t0) / 1000;
+  results.model = { id: (window.ModSimAI.statusObj ? JSON.parse(window.ModSimAI.status()).model : modelId) || modelId,
+    requested: modelId, ok: !!r.ok, reason: r.reason || null, seconds: results.telemetry.loadSeconds };
+  log(r.ok ? `loaded ${modelId} in ${fmt(results.telemetry.loadSeconds)}s` : 'load failed: ' + r.reason);
+  $('load').disabled = false;
+  renderTelemetry();
+};
+
+$('unload').onclick = () => { window.ModSimAI.unload(); log('unloaded'); };
+$('clear').onclick = () => { window.ModSimAI.deleteCache({ modelId: $('model').value }); log('deleting cached weights'); };
+
+function showMessage(m) {
+  const div = document.createElement('div');
+  div.className = 'msg';
+  div.innerHTML = `<b>${escapeHtml(m.username)}</b> <span class="tag">${m.category} · sev ${m.severity}</span><br>`
+    + escapeHtml(m.text)
+    + `<div class="tag">→ ${m.ideal_action}${(m.alt_actions || []).length ? ' (also: ' + m.alt_actions.join(', ') + ')' : ''} · ${escapeHtml(m.rationale)}</div>`;
+  $('gen').appendChild(div);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+$('gen3').onclick = async () => {
+  $('gen').innerHTML = '';
+  log('generating 3 messages…');
+  const t0 = performance.now();
+  try {
+    const r = await window.ModSimAI.request.batch({ count: 3, minKeep: 2, stream: { title: 'cozy games and chat', streamer: 'Nori', viewers: 128, phase: 'growing chat', pressure: 0.35 } });
+    const secs = (performance.now() - t0) / 1000;
+    results.messages = r.messages;
+    results.telemetry.batch3 = { seconds: secs, tokens: r.usage?.completionTokens ?? r.usage?.completion_tokens ?? null, tokensPerSecond: r.usage ? (r.usage.tokensPerSecond || ((r.usage.completionTokens || r.usage.completion_tokens || 0) / Math.max(.001, r.usage.seconds || secs))) : null, estimated: !!r.usage?.tokensEstimated };
+    r.messages.slice(0, 3).forEach(showMessage);
+    $('genraw').hidden = false;
+    $('genraw').textContent = 'raw completion:\n' + (r.rawSample || '') + '\n\nvalidation: dropped ' + r.dropped + ', repaired ' + r.repaired;
+    log(`3 messages in ${fmt(secs)}s (${results.messages.length} accepted)`);
+  } catch (e) { log('generation failed: ' + e.message); }
+  renderTelemetry();
+};
+
+$('gen12').onclick = async () => {
+  $('gen').innerHTML = '';
+  log('generating a batch of 12…');
+  const t0 = performance.now();
+  try {
+    const r = await window.ModSimAI.request.batch({ count: 12, minKeep: 5, tier: 3, pressure: 0.7 });
+    const secs = (performance.now() - t0) / 1000;
+    results.messages = r.messages;
+    results.telemetry.batch12 = { seconds: secs, tokens: r.usage?.completionTokens ?? r.usage?.completion_tokens ?? null, tokensPerSecond: r.usage ? (r.usage.tokensPerSecond || ((r.usage.completionTokens || r.usage.completion_tokens || 0) / Math.max(.001, r.usage.seconds || secs))) : null, estimated: !!r.usage?.tokensEstimated };
+    r.messages.forEach(showMessage);
+    $('genraw').hidden = false;
+    $('genraw').textContent = 'validation: accepted ' + r.messages.length + ', dropped ' + r.dropped + ', repaired ' + r.repaired
+      + '\n' + (r.problems || []).join('\n');
+    log(`12 → ${r.messages.length} accepted in ${fmt(secs)}s`);
+  } catch (e) { log('batch failed: ' + e.message); }
+  renderTelemetry();
+};
+
+$('react').onclick = async () => {
+  $('gen').innerHTML = '';
+  log('generating streamer lines…');
+  try {
+    const r = await window.ModSimAI.request.reactions({ count: 4, context: 'a rude message was just banned and the chat is cheering' });
+    for (const line of r.reactions) {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = `<b>Nori</b> <span class="tag">${line.mood}</span><br>${escapeHtml(line.text)}`;
+      $('gen').appendChild(div);
+    }
+    results.reactions = r.reactions;
+    log('streamer lines: ' + r.reactions.length);
+  } catch (e) { log('reactions failed: ' + e.message); }
+};
+
+$('classify').onclick = async () => {
+  $('cls').innerHTML = '';
+  const history = $('chistory').value.split('\n').filter((l) => l.trim()).map((t) => ({ text: t.trim() }));
+  log('classifying…');
+  const t0 = performance.now();
+  try {
+    const r = await window.ModSimAI.request.classify({
+      text: $('ctext').value, username: $('cuser').value, history,
+      stream: { title: 'cozy games and chat', streamer: 'Nori' },
+    });
+    const secs = (performance.now() - t0) / 1000;
+    const c = r.classification;
+    results.classification = { ...c, seconds: secs, input: $('ctext').value, history: history.length };
+    const div = document.createElement('div');
+    div.className = 'msg';
+    div.innerHTML = `<b>${escapeHtml($('ctext').value)}</b>
+      <div class="tag">category <span class="ok">${c.category}</span> · severity ${c.severity} · confidence ${fmt(c.confidence, 2)}</div>
+      <div>moderator should <b class="ok">${c.recommended_action.toUpperCase()}</b>${c.alt_actions.length ? ' (defensible: ' + c.alt_actions.join(', ') + ')' : ''}</div>
+      <div class="tag">${escapeHtml(c.rationale)}</div>
+      <div class="tag">${fmt(secs, 2)}s</div>`;
+    $('cls').appendChild(div);
+    log(`classified as ${c.category} → ${c.recommended_action} in ${fmt(secs)}s`);
+  } catch (e) { log('classification failed: ' + e.message); }
+  renderTelemetry();
+};
+
+function renderTelemetry() {
+  const rows = [['model', results.model ? `${results.model.id} (${results.model.ok ? 'loaded' : 'failed'})` : 'not loaded']];
+  const st = JSON.parse(window.ModSimAI.status());
+  rows.push(['runtime', st.runtime || '—']);
+  rows.push(['load seconds', fmt(results.telemetry.loadSeconds, 1)]);
+  for (const [k, v] of Object.entries(results.telemetry)) {
+    if (typeof v === 'object' && v) rows.push([k, `${fmt(v.seconds, 1)}s · ${v.tokens ?? '?'} tokens${v.estimated ? '~' : ''} · ${fmt(v.tokensPerSecond, 1)} tok/s${v.estimated ? ' (estimated)' : ''}`]);
+  }
+  if (st.stats && st.stats.tokensPerSecond) rows.push(['worker last tok/s', fmt(st.stats.tokensPerSecond, 1)]);
+  rows.push(['batches', `${st.batchesDelivered} delivered / ${st.batchesRequested} requested`]);
+  rows.push(['queued messages', st.queue]);
+  $('telem').innerHTML = rows.map(([k, v]) => `<tr><td class="k">${k}</td><td class="stat">${v}</td></tr>`).join('');
+}
+
+/* ---- automated mode: tools/e2e/ai_lab.mjs ---- */
+const params = new URLSearchParams(location.search);
+if (params.get('auto')) {
+  const modelId = params.get('model') || null;
+  (async () => {
+    log('auto run starting');
+    $('consent').checked = true;
+    if (modelId) window.ModSimAI.configure({ modelId });   // before the <select> is populated
+    const caps = await window.ModSimAI.request.capabilities();
+    renderCaps(caps);
+    console.log('[ailab] capabilities');
+    if (modelId && [...$('model').options].some((o) => o.value === modelId)) $('model').value = modelId;
+    const t0 = performance.now();
+    const r = await window.ModSimAI.request.load({ modelId: modelId || $('model').value, consent: true });
+    results.telemetry.loadSeconds = (performance.now() - t0) / 1000;
+    results.model = { id: JSON.parse(window.ModSimAI.status()).model || $('model').value,
+    requested: $('model').value, ok: !!r.ok, reason: r.reason || null, seconds: results.telemetry.loadSeconds };
+    if (!r.ok) { console.log('[ailab] load-failed ' + r.reason); return; }
+    console.log('[ailab] loaded');
+    await $('gen3').onclick();
+    console.log('[ailab] generated3');
+    await $('gen12').onclick();
+    console.log('[ailab] generated12');
+    await $('classify').onclick();
+    console.log('[ailab] classified');
+    await $('react').onclick();
+    console.log('[ailab] reacted');
+    renderTelemetry();
+    console.log('[ailab] done');
+  })().catch((e) => console.log('[ailab] fatal ' + (e && e.message)));
+}
+</script>
+</body>
+</html>
