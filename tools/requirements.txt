@@ -1,0 +1,10 @@
+# Python packages the gates need. The game itself has no Python dependency at
+# runtime; this is only for the tools/ scripts.
+#
+#   python3 -m pip install -r tools/requirements.txt
+#
+# Pillow    tools/check_shots.py reads the Playwright screenshots back and
+#           fails on blank frames by pixels (the only non-stdlib import in
+#           tools/).
+
+Pillow>=10

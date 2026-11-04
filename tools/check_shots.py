@@ -14,7 +14,13 @@ from __future__ import annotations
 import os
 import sys
 
-from PIL import Image
+try:
+    from PIL import Image
+except ModuleNotFoundError:                                    # pragma: no cover
+    sys.stderr.write(
+        "check_shots.py needs Pillow to read the screenshots back:\n"
+        "    python3 -m pip install -r tools/requirements.txt\n")
+    sys.exit(2)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SHOTS = os.path.normpath(os.path.join(HERE, "..", "shots"))

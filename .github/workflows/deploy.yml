@@ -122,6 +122,11 @@ jobs:
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
 
+      # tools/check_shots.py reads the screenshots back by pixels; it is the
+      # only gate that is not stdlib-only.
+      - name: Install Python gates deps
+        run: python3 -m pip install --quiet --requirement tools/requirements.txt
+
       - name: Serve and drive the build
         run: |
           python3 tools/serve.py --dir dist --port 8000 &

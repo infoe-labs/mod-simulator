@@ -161,6 +161,7 @@ The browser pass, if you want to run it on its own:
 
 ```bash
 cd tools/e2e && npm install
+python3 -m pip install -r tools/requirements.txt   # Pillow, for the screenshot gate
 node e2e.mjs --url http://127.0.0.1:8000/
 python3 tools/check_shots.py        # from the repo root
 
