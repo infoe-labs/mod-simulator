@@ -28,6 +28,10 @@ const arg = (name, dflt) => {
 const BASE = arg("url", process.env.E2E_URL || "http://127.0.0.1:8000/");
 const DESKTOP = argv.includes("--desktop");
 const BOOT_TIMEOUT_MS = Number(arg("timeout", 180000));
+// The walk is a different budget from the boot: thirteen steps, and the AI step
+// deliberately runs long enough for the model's budget to run out so the
+// fallback is provably exercised. On a loaded CI runner that needs room.
+const WALK_TIMEOUT_MS = Number(arg("walk-timeout", 480000));
 const USE_AI = !argv.includes("--no-ai");
 
 const steps = [];
@@ -253,8 +257,14 @@ async function main() {
   if (!ready) throw new Error(`game did not reach the menu within ${BOOT_TIMEOUT_MS} ms`);
 
   // Let the pilot finish every step.
-  for (let i = 0; i < 240 && !steps.includes("done"); i++) {
+  const walkStart = Date.now();
+  while (!steps.includes("done") && Date.now() - walkStart < WALK_TIMEOUT_MS) {
     await page.waitForTimeout(1000);
+  }
+  if (!steps.includes("done")) {
+    console.error(`WALK TIMEOUT: the pilot never finished within ${WALK_TIMEOUT_MS} ms; reached: ${steps.join(", ")}`);
+  } else {
+    log(`walk finished in ${Math.round((Date.now() - walkStart) / 1000)} s`);
   }
 
   const canvas = await page.evaluate(() => {
@@ -298,7 +308,7 @@ async function main() {
   const missing = ["menu", "tutorial", "game", "game-ai", "results", "ending-win", "ending-lose", "settings"];
   const absent = missing.filter((s) => !steps.includes(s));
   if (absent.length) {
-    console.error("MISSING STEPS: " + absent.join(", "));
+    console.error("MISSING STEPS: " + absent.join(", ") + ` (reached: ${steps.join(", ")})`);
     process.exit(1);
   }
   if (errors.length) {
