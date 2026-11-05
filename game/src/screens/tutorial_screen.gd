@@ -13,7 +13,7 @@ const STEPS := [
 	{
 		"kind": "choose", "id": "WH01",
 		"head": "Kind chat stays",
-		"hint": "ALLOW keeps it. DELETE hides it. BAN removes the viewer.",
+		"hint": "ALLOW keeps it. Harmless messages are also allowed if you do nothing. DELETE hides it. BAN removes the viewer.",
 	},
 	{
 		"kind": "choose", "id": "CR01",

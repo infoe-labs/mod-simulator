@@ -18,7 +18,8 @@ var _aspect := 1.2
 var _quality := "high"
 
 
-func _init(config: Dictionary = {}) -> void:
+func _init(config: Dictionary = {}, quality: String = "high") -> void:
+	_quality = quality
 	_cfg = config if not config.is_empty() else ProceduralVTuber.default_config()
 	_build()
 
@@ -64,7 +65,7 @@ func _build() -> void:
 	camera.current = true
 	add_child(camera)
 
-	_vtuber = ProceduralVTuber.new(_cfg)
+	_vtuber = ProceduralVTuber.new(_cfg, _quality == "low")
 	_vtuber.set_low_quality(_quality == "low")
 	add_child(_vtuber)
 	fit(_aspect)
@@ -90,18 +91,18 @@ func set_quality(q: String) -> void:
 
 
 func fit(aspect: float) -> void:
-	_aspect = clampf(aspect, 0.4, 2.4)
+	_aspect = clampf(aspect, 0.3, 5.0)
 	if camera == null:
 		return
 	# Frame head + shoulders, keeping her slightly high so chat can sit below.
-	var focus := Vector3(0.0, HEAD_Y - 0.14, 0.0)
+	var focus := Vector3(0.0, HEAD_Y - 0.30, 0.0)
 	var dir := Vector3(0.0, 0.06, 1.0).normalized()
-	var half := 0.62
+	var half := 0.98
 	var tan_half := tan(deg_to_rad(camera.fov * 0.5))
 	var d := half / maxf(0.05, tan_half)
 	# Widen out on tall slots so her head never gets cropped.
 	if _aspect < 1.0:
-		d *= clampf(1.0 / maxf(0.45, _aspect) * 0.72, 1.0, 1.5)
+		d *= maxf(1.0, 0.8 / _aspect)
 	var pos := focus + dir * d
 	camera.position = pos
 	camera.look_at_from_position(pos, focus, Vector3.UP)

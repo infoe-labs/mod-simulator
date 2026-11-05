@@ -13,7 +13,7 @@ var failures := 0
 func _initialize() -> void:
 	print("── layout audit ──")
 	await process_frame
-	for size in [Vector2(720, 1280), Vector2(720, 1420), Vector2(1280, 720), Vector2(500, 1080)]:
+	for size in [Vector2(720, 1280), Vector2(720, 1420), Vector2(1280, 720), Vector2(1920, 1080), Vector2(500, 1080)]:
 		await _audit_game(size)
 	await _audit_menu(Vector2(720, 1280))
 	print("── %s ──" % ("LAYOUT OK" if failures == 0 else "%d FAILURE(S)" % failures))
@@ -71,6 +71,7 @@ func _audit_game(canvas: Vector2) -> void:
 	for id in rows.keys():
 		var row = rows[id]
 		if row != null and is_instance_valid(row) and row.visible and row.size.x > 100 and row.size.y >= 60:
+			_check(row._username.size.x >= 100, "    chat username has readable width")
 			visible_rows += 1
 			min_row_h = minf(min_row_h, row.size.y)
 		elif row != null and is_instance_valid(row):
@@ -188,11 +189,24 @@ func _audit_game(canvas: Vector2) -> void:
 		var ctl := c as Control
 		if ctl.size.x < 160.0:
 			too_narrow += 1
-		if ctl.size.y > 320.0:
+		if ctl != game._feedback and ctl.size.y > 320.0:
 			too_tall += 1
 	_check(popups > 0, "    feedback popup spawned (%d)" % popups)
 	_check(too_narrow == 0, "    no popup collapsed to a sliver (narrow=%d)" % too_narrow)
 	_check(too_tall == 0, "    no popup wrapping one word per line (tall=%d)" % too_tall)
+
+	_check(game._feedback_entries.get_child(0) is VBoxContainer, "    placeholder clears when real feedback arrives")
+	_check(game._feedback.visible, "    moderation log receives direct simulation decisions")
+	var log_rect := Rect2(game._feedback.position, game._feedback.size)
+	_check(log_rect.position.x >= 0 and log_rect.end.x <= canvas.x + 2,
+			"    moderation log fits canvas horizontally")
+	if game._desktop_feedback:
+		_check(log_rect.position.x >= game._frame.position.x + game._frame.size.x,
+				"    desktop log sits beside the game")
+	else:
+		_check(log_rect.end.y <= game._btn_allow.global_position.y,
+				"    phone feedback clears moderation buttons")
+	_check(game._feedback_seconds >= 9.0, "    feedback stays for ten seconds")
 
 	# Streamer speech bubble.
 	game._bubble.visible = true

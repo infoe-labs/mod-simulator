@@ -263,9 +263,15 @@ func _ai_request() -> Dictionary:
 
 
 func _expire(m: SimMessage) -> void:
+	# Leaving a harmless message alone is the same decision as ALLOW, including
+	# score, combo, flood protection and trust cap. No click or cooldown needed.
+	if m.is_harmless() and m.ideal == "allow":
+		_resolve(m, "allow", true)
+		return
 	m.state = "expired"
 	m.action = "expire"
 	var res := ModerationEngine.expire_verdict(m, bal)
+	res["message"] = m
 	var d: Vector2 = res["delta"]
 	d = Vector2(d.x * _expiry_scale, d.y * _expiry_scale)
 	_apply(Vector2(d.x, d.y))
@@ -292,11 +298,16 @@ func act(action: String) -> Dictionary:
 	var m := focused()
 	if m == null:
 		return {"blocked": true, "reason": "empty"}
+	return _resolve(m, action)
+
+
+func _resolve(m: SimMessage, action: String, passive: bool = false) -> Dictionary:
 	var flood := flood_scale()
 	var res := ModerationEngine.decide(m, action, bal, combo, flood)
 	# The screen shows "was <category> · best <call>" after the decision; the
 	# engine stays render-agnostic, so the message rides along here.
 	res["message"] = m
+	res["passive"] = passive
 	var d: Vector2 = res["delta"]
 	if not bool(res["correct"]) and bal.get_int("combo_max", 6) >= 0:
 		d = Vector2(d.x * _wrong_scale, d.y * _wrong_scale)
@@ -350,7 +361,8 @@ func act(action: String) -> Dictionary:
 	combo_changed.emit(combo)
 	_react(m, res)
 	resolved.emit(m, res)
-	act_timer = bal.get_num("act_cooldown", 0.14)
+	if not passive:
+		act_timer = bal.get_num("act_cooldown", 0.14)
 	_check_end()
 	return res
 

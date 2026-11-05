@@ -24,7 +24,14 @@ decisions:
 | `3` | **BAN** | remove the user |
 
 You tap a row to focus it, then tap a decision (or use the number keys on a
-desktop). Tapping a row never moderates it, so a scrolling thumb cannot ban
+desktop). Harmless messages are automatically allowed when their timer runs out,
+with the same score, combo and meter rewards as clicking ALLOW. Abuse still needs
+your intervention. Accepted messages remain in a bounded, scrolling chat history.
+
+Desktop has a separate moderation log with the last 30 outcomes. On phones,
+feedback appears over the video for ten seconds, can be dismissed, and leaves the
+chat and action buttons accessible. Automatic harmless accepts update the log
+quietly. Tapping a row never moderates it, so a scrolling thumb cannot ban
 somebody by accident.
 
 Two meters decide the run:
@@ -43,14 +50,15 @@ with alt accounts, and borderline messages make you think.
 * **Lose** — mood hits zero and the streamer ends the broadcast because it got
   too upsetting.
 
-Everything is fictional: usernames, channel names, and all 169 chat lines are
-written for this game.
+Everything is fictional. Offline chat combines procedural conversation grammar
+(shared topics, replies, emotes and everyday chatter) with 169 authored moderation
+examples. A run seed reproduces the conversation and streamer appearance.
 
 ### Two ways to get a chat
 
 | | **Classic Mode** | **AI Chat Mode** |
 |---|---|---|
-| where the messages come from | 169 authored lines in `data/messages.json` | a small language model running **in your browser** |
+| where the messages come from | procedural conversations + authored moderation examples | a small language model running **in your browser** |
 | needs | nothing | a one-time, opt-in model download (106–705 MB) |
 | offline | yes | yes, once the model is cached |
 | scoring, categories, win condition | identical | identical |
@@ -75,7 +83,7 @@ in the save file.
 ### Look
 
 A low-poly desk scene with a laptop, and a VTuber built procedurally from
-Godot primitives (deterministic from a seed, configured in
+Godot primitives (a fresh appearance each run, reproducible from its seed, configured in
 `game/data/`, no external models). The chat, meters and buttons are ordinary
 Godot 2D `Control` nodes drawn over the 3D feed: readable text and honest
 touch targets rather than text baked into a 3D screen.
