@@ -30,6 +30,10 @@ var _phase := "dialogue"
 var _date_buttons: VBoxContainer
 var _continue: Button
 var _skip: Button
+var _page: ScrollPage
+var _press_pos := Vector2.ZERO
+var _press_scroll := 0
+var _pointer_down := false
 
 
 func with_params(params: Dictionary) -> void:
@@ -70,32 +74,20 @@ func _ready() -> void:
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(glow)
 
-	var tap := Control.new()
-	tap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(tap)
-	tap.gui_input.connect(_on_tap)
-
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	Main.apply_safe_margins(margin)
-	margin.add_theme_constant_override("margin_left", 20)
-	margin.add_theme_constant_override("margin_right", 20)
-	margin.add_theme_constant_override("margin_top", 16)
-	margin.add_theme_constant_override("margin_bottom", 18)
-	add_child(margin)
-
-	var root := VBoxContainer.new()
+	_page = ScrollPage.new(20)
+	add_child(_page)
+	_page.gui_input.connect(_on_tap)
+	var root := _page.content
 	root.add_theme_constant_override("separation", 10)
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(root)
+
 	root.add_child(UI.vspacer(30))
 
 	var top := HBoxContainer.new()
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(top)
-	top.add_child(UI.label("NORI  ·  SIGNING OFF", UI.FS_TINY, UI.PINK))
-	top.add_child(UI.vspacer(6))
+	var heading := UI.wrap_label("NORI  ·  SIGNING OFF", UI.FS_TINY, UI.PINK)
+	top.add_child(heading)
+	top.add_child(UI.spacer(6))
 	_skip = UI.button("SKIP", UI.FS_TINY)
 	_skip.custom_minimum_size = Vector2(110, 78)
 	_skip.pressed.connect(_to_results)
@@ -127,8 +119,12 @@ func _ready() -> void:
 
 	_continue = UI.tinted_button("CONTINUE", UI.MINT, UI.MINT_DARK, UI.FS_BODY + 4)
 	_continue.custom_minimum_size = Vector2(0, 112)
-	_continue.visible = false
-	_continue.pressed.connect(_to_results)
+	_continue.visible = true
+	_continue.pressed.connect(func():
+		if _phase == "dialogue":
+			_advance()
+		else:
+			_to_results())
 	root.add_child(_continue)
 
 	_advance()
@@ -137,6 +133,7 @@ func _ready() -> void:
 func _advance() -> void:
 	_index += 1
 	if _index < SCRIPT.size():
+		_continue.text = "NEXT"
 		_line_label.text = SCRIPT[_index]
 		_stage.react(_mood_for(_index), 2.2)
 		_stage.say_for(1.6)
@@ -147,6 +144,8 @@ func _advance() -> void:
 		_phase = "ask"
 		_line_label.text = "So... where are we going?"
 		_date_buttons.visible = true
+		_continue.visible = false
+		_page.ensure_control_visible.call_deferred(_date_buttons)
 		_stage.set_expression("blushing")
 		AudioManager.play_music("loop_cozy")
 		_confetti(14)
@@ -173,21 +172,41 @@ func _pick_date(reply: String) -> void:
 	_stage.say_for(2.4)
 	AudioManager.play("win")
 	_confetti(30)
+	_continue.text = "CONTINUE"
 	_continue.visible = true
+	_page.ensure_control_visible.call_deferred(_continue)
 
 
 func _on_tap(event: InputEvent) -> void:
 	if _phase != "dialogue":
 		return
-	var pressed := false
-	if event is InputEventScreenTouch:
-		pressed = event.pressed
-	elif event is InputEventMouseButton:
-		pressed = event.pressed and event.button_index == MOUSE_BUTTON_LEFT
-	elif event is InputEventKey:
-		pressed = event.pressed and (event.keycode == KEY_SPACE or event.keycode == KEY_ENTER)
-	if pressed:
-		_advance()
+	if event is InputEventScreenTouch or event is InputEventMouseButton:
+		# Buttons receive both touch and emulated mouse input. Their own signal
+		# handles the tap; bubbling it into the page would advance twice.
+		var point: Vector2 = _page.get_global_transform_with_canvas() * event.position
+		var buttons: Array = [_skip, _continue]
+		buttons.append_array(_date_buttons.get_children())
+		for button in buttons:
+			if button.is_visible_in_tree() and button.get_global_rect().has_point(point):
+				_pointer_down = false
+				return
+		if event is InputEventMouseButton and event.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if event.pressed:
+			_pointer_down = true
+			_press_pos = event.position
+			_press_scroll = _page.scroll_vertical
+		elif _pointer_down:
+			_pointer_down = false
+			if event.position.distance_to(_press_pos) < 12.0 and _press_scroll == _page.scroll_vertical:
+				_advance()
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if _phase == "dialogue" and event.is_pressed() and not event.is_echo():
+		if event is InputEventKey and event.keycode in [KEY_SPACE, KEY_ENTER]:
+			_advance()
+			get_viewport().set_input_as_handled()
 
 
 func _confetti(n: int) -> void:

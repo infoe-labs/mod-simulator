@@ -51,7 +51,7 @@ func start(main: Node) -> void:
 		{"to": "res://scenes/Results.tscn", "params": {"won": false}, "log": "results-lost", "hold": 90},
 		{"to": "res://scenes/Ending.tscn", "params": {"won": true}, "log": "ending-win", "hold": 260},
 		{"to": "res://scenes/Ending.tscn", "params": {"won": false}, "log": "ending-lose", "hold": 200},
-		{"to": "res://scenes/Settings.tscn", "log": "settings", "hold": 80, "then": "geom"},
+		{"to": "res://scenes/Settings.tscn", "log": "settings", "hold": 600, "then": "geom"},
 		{"to": "res://scenes/MainMenu.tscn", "log": "menu-progress", "hold": 90},
 	]
 	print(STEP_LOG + " start steps=" + str(_steps.size()))
@@ -69,11 +69,11 @@ func tick(delta: float) -> void:
 	var step: Dictionary = _steps[_i]
 	# Feed the live game so the chat actually moves and messages get moderated.
 	var gs = _main.get_node_or_null("/root/GameState")
+	_chat_seen += delta
+	if _chat_seen > 0.8:
+		_chat_seen = 0.0
+		_dump_chat()
 	if gs != null and gs.sim != null and gs.sim.is_running():
-		_chat_seen += delta
-		if _chat_seen > 0.8:
-			_chat_seen = 0.0
-			_dump_chat()
 		if _frame % 6 == 0:
 			var f = gs.sim.focused()
 			if f != null:
@@ -114,6 +114,9 @@ func _dump_geometry() -> void:
 ## diagnose "empty tray" reports from a real browser run.
 func _dump_chat() -> void:
 	var scr = _main.current
+	if scr != null and "_page" in scr:
+		_dump_page(scr)
+		return
 	if scr == null or not ("_scroll" in scr):
 		print(STEP_LOG + " chat n/a (screen=%s)" % [scr])
 		return
@@ -241,3 +244,18 @@ func _do_then(step: Dictionary) -> void:
 				gs.sim.happiness = 100.0
 				gs.sim.trust = 100.0
 				gs.sim.elapsed = (gs.sim.session_seconds if gs.sim.session_seconds > 0.0 else 240.0) - 0.05
+
+
+func _dump_page(screen: Control) -> void:
+	var page: ScrollPage = screen.get("_page")
+	if page == null:
+		return
+	var bar := page.get_v_scroll_bar()
+	print(STEP_LOG + " page " + JSON.stringify({
+		"screen": screen.get_script().get_global_name(),
+		"canvas": [screen.size.x, screen.size.y],
+		"viewport": [page.size.x, page.size.y],
+		"content_width": page.content.size.x,
+		"scroll": page.scroll_vertical,
+		"max_scroll": maxf(0, bar.max_value - bar.page),
+	}))

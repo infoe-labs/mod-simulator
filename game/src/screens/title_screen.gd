@@ -11,9 +11,10 @@ var _title: Label
 var _sub: Label
 var _records: Label
 var _buttons: VBoxContainer
-var _mode_row: HBoxContainer
+var _mode_row: GridContainer
 var _selected_mode := "story"
 var _booted := false
+var _page: ScrollPage
 
 
 func _ready() -> void:
@@ -52,26 +53,17 @@ func _build_ui() -> void:
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(scrim)
 
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	Main.apply_safe_margins(margin)
-	margin.add_theme_constant_override("margin_left", 26)
-	margin.add_theme_constant_override("margin_right", 26)
-	margin.add_theme_constant_override("margin_top", 40)
-	margin.add_theme_constant_override("margin_bottom", 26)
-	add_child(margin)
-
-	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 14)
-	margin.add_child(root)
+	_page = ScrollPage.new(26)
+	add_child(_page)
+	var root := _page.content
 
 	root.add_child(UI.vspacer(10))
 
-	var kicker := UI.label("STREAMLET  ·  TONIGHT 9PM", UI.FS_TINY, UI.VIOLET)
+	var kicker := UI.wrap_label("STREAMLET  ·  TONIGHT 9PM", UI.FS_TINY, UI.VIOLET)
 	kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(kicker)
 
-	_title = UI.label("STREAMER\nMOD SIMULATOR", UI.FS_HUGE, UI.TEXT)
+	_title = UI.wrap_label("STREAMER\nMOD SIMULATOR", UI.FS_HUGE, UI.TEXT)
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title.add_theme_constant_override("line_spacing", -6)
 	root.add_child(_title)
@@ -89,15 +81,16 @@ func _build_ui() -> void:
 	root.add_child(_records)
 	root.add_child(UI.vspacer(10))
 
-	_mode_row = HBoxContainer.new()
+	_mode_row = GridContainer.new()
 	_mode_row.add_theme_constant_override("separation", 10)
-	_mode_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_mode_row.columns = 3
 	root.add_child(_mode_row)
 	_rebuild_modes()
+	_page.resized.connect(_fit_modes)
+	_fit_modes()
 
 	# The chat model lives on the front door because it is a real choice: it
 	# costs a download, and the player should see what it does before playing.
-	root.add_child(AIStatusRow.new(GameState.ai_manager()))
 
 	_buttons = VBoxContainer.new()
 	_buttons.add_theme_constant_override("separation", 12)
@@ -133,6 +126,7 @@ func _build_ui() -> void:
 			Main.goto("res://scenes/Ending.tscn"))
 		_buttons.add_child(cut)
 
+	root.add_child(AIStatusRow.new(GameState.ai_manager()))
 	root.add_child(UI.vspacer(20))
 	var foot := UI.label("saves on this device  ·  no account  ·  works offline once loaded",
 			UI.FS_TINY, UI.TEXT_FAINT)
@@ -205,7 +199,7 @@ func _play() -> void:
 
 
 func _show_storage_warning() -> void:
-	var l := UI.label("Private tab: scores won't be saved this session.",
+	var l := UI.wrap_label("Private tab: scores won't be saved this session.",
 			UI.FS_TINY, UI.AMBER)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_records.get_parent().add_child(l)
@@ -225,3 +219,7 @@ func _layout_world() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		call_deferred("_layout_world")
+
+
+func _fit_modes() -> void:
+	_mode_row.columns = 1 if _page.size.x < 600.0 else 3

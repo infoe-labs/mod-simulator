@@ -29,6 +29,7 @@ var _last_text := ""
 
 
 func _init(manager: AIChatManager = null) -> void:
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	ai = manager if manager != null else GameState.ai_manager()
 	var panel := UI.panel(UI.PANEL, 16, 14)
 	add_child(panel)
@@ -37,12 +38,11 @@ func _init(manager: AIChatManager = null) -> void:
 	col.add_theme_constant_override("separation", 8)
 	panel.add_child(col)
 
-	var head := HBoxContainer.new()
+	var head := VBoxContainer.new()
 	head.add_theme_constant_override("separation", 10)
 	col.add_child(head)
-	head.add_child(UI.label("LIVE CHAT MODEL", UI.FS_TINY, UI.VIOLET))
-	head.add_child(UI.spacer())
-	_state_label = UI.label("…", UI.FS_TINY, UI.TEXT_DIM)
+	head.add_child(UI.wrap_label("LIVE CHAT MODEL", UI.FS_TINY, UI.VIOLET))
+	_state_label = UI.wrap_label("…", UI.FS_TINY, UI.TEXT_DIM)
 	head.add_child(_state_label)
 
 	_detail = UI.wrap_label("Writing chat with the authored script.", UI.FS_TINY, UI.TEXT_DIM)
@@ -57,7 +57,7 @@ func _init(manager: AIChatManager = null) -> void:
 	_bar.visible = false
 	col.add_child(_bar)
 
-	var row := HBoxContainer.new()
+	var row := VBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	col.add_child(row)
 

@@ -18,7 +18,7 @@ run() {
   out=$(timeout "${TIMEOUT:-600}" "$@" 2>&1)
   local rc=$?
   if [ $rc -eq 0 ] && ! grep -qE "FAILURE|FAILED|SCRIPT ERROR|Parse Error" <<<"$out"; then
-    grep -E "ALL PASS|BALANCE OK|SMOKE OK|LAYOUT OK|PAUSE MENU OK|PALETTE OK|SHOTS OK|E2E OK" <<<"$out" | tail -1
+    grep -E "ALL PASS|BALANCE OK|SMOKE OK|LAYOUT OK|PAUSE MENU OK|MOBILE UI OK|PALETTE OK|SHOTS OK|E2E OK" <<<"$out" | tail -1
   else
     echo "FAILED (exit $rc)"
     tail -25 <<<"$out"
@@ -32,6 +32,7 @@ run logic    "$GODOT" --headless --path game -s res://tests/run_tests.gd
 run balance  "$GODOT" --headless --path game -s res://tests/sim_tests.gd
 run smoke    "$GODOT" --headless --path game -s res://tests/smoke.gd
 run layout   "$GODOT" --headless --path game -s res://tests/layout_audit.gd
+run mobile   "$GODOT" --headless --path game -s res://tests/mobile_ui.gd
 run pause    "$GODOT" --headless --path game -s res://tests/pause_input.gd
 run ai       "$GODOT" --headless --path game -s res://tests/ai_tests.gd
 

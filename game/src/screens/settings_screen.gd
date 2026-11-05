@@ -6,6 +6,7 @@ extends Control
 
 var _return_to := "menu"
 var _confirm_reset := false
+var _page: ScrollPage
 
 
 func with_params(params: Dictionary) -> void:
@@ -20,25 +21,12 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
-	var scroll := ScrollContainer.new()
-	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(scroll)
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	Main.apply_safe_margins(margin)
-	margin.add_theme_constant_override("margin_left", 24)
-	margin.add_theme_constant_override("margin_right", 24)
-	margin.add_theme_constant_override("margin_top", 24)
-	margin.add_theme_constant_override("margin_bottom", 24)
-	scroll.add_child(margin)
-
-	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 14)
-	margin.add_child(root)
+	_page = ScrollPage.new()
+	add_child(_page)
+	var root := _page.content
 
 	root.add_child(UI.label("SETTINGS", UI.FS_TITLE, UI.TEXT))
-	root.add_child(UI.label("Sound, comfort and saved data. All of it stays on this device.",
+	root.add_child(UI.wrap_label("Sound, comfort and saved data. All of it stays on this device.",
 			UI.FS_SMALL, UI.TEXT_DIM))
 
 	var card := UI.panel(UI.PANEL, 20, 18, UI.PANEL_LINE)
@@ -62,11 +50,10 @@ func _ready() -> void:
 	ai_card.add_child(av)
 	av.add_child(UI.wrap_label(
 		"AI CHAT\nWhen it is on, an AI written into this page writes the viewers' messages on your "
-		+ "device. Turn it off and the game uses 169 hand-written lines instead - same rules, same "
+		+ "device. Turn it off and the game generates chat locally instead - same rules, same "
 		+ "scoring, same you.", UI.FS_SMALL, UI.TEXT))
 	av.add_child(AIStatusRow.new(GameState.ai_manager()))
 	av.add_child(_ai_profile_row())
-	var stats := GameState.ai_manager().summary()
 	var lifetime := SaveManager.profile
 	av.add_child(UI.wrap_label(
 		"this device: %d AI-written messages across %d streams" % [lifetime.ai_messages, lifetime.ai_runs],
@@ -77,9 +64,9 @@ func _ready() -> void:
 	var dv := VBoxContainer.new()
 	dv.add_theme_constant_override("separation", 10)
 	data.add_child(dv)
-	dv.add_child(UI.label("SAVED ON THIS DEVICE", UI.FS_TINY, UI.TEXT_DIM))
+	dv.add_child(UI.wrap_label("SAVED ON THIS DEVICE", UI.FS_TINY, UI.TEXT_DIM))
 	var p := SaveManager.profile
-	dv.add_child(UI.label(
+	dv.add_child(UI.wrap_label(
 			"streams %d   ·   wins %d   ·   best score %d   ·   bans %d" % [
 				p.games_played, p.wins, p.best_score, p.total_bans], UI.FS_SMALL, UI.TEXT))
 	if not SaveManager.storage_ok:
@@ -103,12 +90,15 @@ func _ready() -> void:
 
 
 func _ai_profile_row() -> Control:
-	var row := HBoxContainer.new()
+	var row := VBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	var l := UI.label("model size", UI.FS_TINY, UI.TEXT_DIM)
 	l.custom_minimum_size = Vector2(120, UI.MIN_TAP)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(l)
+	var choices := HBoxContainer.new()
+	choices.add_theme_constant_override("separation", 10)
+	row.add_child(choices)
 	var current := String(SaveManager.setting("ai_profile"))
 	for entry in [["light", "LIGHT"], ["auto", "AUTO"], ["standard", "STRONG"]]:
 		var key := String(entry[0])
@@ -120,17 +110,19 @@ func _ai_profile_row() -> Control:
 			AudioManager.play("click")
 			GameState.set_ai_profile(key)
 			Main.goto("res://scenes/Settings.tscn", {"return_to": _return_to}))
-		row.add_child(b)
+		choices.add_child(b)
 	return row
 
 
 func _slider_row(title: String, key: String, fallback: float) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	var l := UI.label(title, UI.FS_SMALL, UI.TEXT)
-	l.custom_minimum_size = Vector2(250, UI.MIN_TAP)
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var l := UI.wrap_label(title, UI.FS_SMALL, UI.TEXT)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(l)
+	var controls := HBoxContainer.new()
+	controls.add_theme_constant_override("separation", 12)
+	row.add_child(controls)
 	var s := HSlider.new()
 	s.min_value = 0.0
 	s.max_value = 1.0
@@ -145,8 +137,8 @@ func _slider_row(title: String, key: String, fallback: float) -> Control:
 	var val := UI.label("%d" % int(s.value * 100), UI.FS_SMALL, UI.TEXT_DIM)
 	val.custom_minimum_size = Vector2(64, 0)
 	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(s)
-	row.add_child(val)
+	controls.add_child(s)
+	controls.add_child(val)
 	s.value_changed.connect(func(sv):
 		SaveManager.set_setting(key, sv)
 		val.text = "%d" % int(sv * 100)
@@ -157,7 +149,9 @@ func _slider_row(title: String, key: String, fallback: float) -> Control:
 
 func _check_row(title: String, key: String) -> Control:
 	var b := CheckBox.new()
+	b.mouse_filter = Control.MOUSE_FILTER_PASS
 	b.text = title
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.button_pressed = bool(SaveManager.setting(key))
 	b.add_theme_font_size_override("font_size", UI.FS_SMALL)
 	b.custom_minimum_size = Vector2(0, UI.MIN_TAP)

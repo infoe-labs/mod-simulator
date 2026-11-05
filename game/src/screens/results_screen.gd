@@ -5,6 +5,7 @@ extends Control
 ## note about what to do differently.
 
 var _summary: Dictionary = {}
+var _page: ScrollPage
 
 
 func with_params(params: Dictionary) -> void:
@@ -44,30 +45,17 @@ func _ready() -> void:
 		headline = "STREAM ENDED EARLY"
 		sub = "You left mid-night. She'll be back tomorrow."
 
-	var scroll := ScrollContainer.new()
-	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(scroll)
+	_page = ScrollPage.new()
+	add_child(_page)
+	var root := _page.content
 
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	margin.add_theme_constant_override("margin_left", 24)
-	margin.add_theme_constant_override("margin_right", 24)
-	margin.add_theme_constant_override("margin_top", 30)
-	margin.add_theme_constant_override("margin_bottom", 30)
-	scroll.add_child(margin)
-
-	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 14)
-	margin.add_child(root)
-
-	var kick := UI.label("NIGHT REPORT  ·  %s" % ContentDB.mode_label(String(_summary.get("mode", "story"))).to_upper(),
+	var kick := UI.wrap_label("NIGHT REPORT  ·  %s" % ContentDB.mode_label(String(_summary.get("mode", "story"))).to_upper(),
 			UI.FS_TINY, accent)
 	root.add_child(kick)
 	var h := UI.label(headline, UI.FS_BIG, UI.TEXT)
 	h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(h)
-	root.add_child(UI.label(sub, UI.FS_BODY, UI.TEXT_DIM))
+	root.add_child(UI.wrap_label(sub, UI.FS_BODY, UI.TEXT_DIM))
 
 	root.add_child(_stat_card())
 	root.add_child(_advice_card())
@@ -94,7 +82,7 @@ func _stat_card() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	p.add_child(v)
-	v.add_child(UI.label("THE NUMBERS", UI.FS_TINY, UI.TEXT_DIM))
+	v.add_child(UI.wrap_label("THE NUMBERS", UI.FS_TINY, UI.TEXT_DIM))
 
 	v.add_child(_big_row("SCORE", int(_summary.get("score", 0)), UI.GOLD))
 	v.add_child(_meter_line("MOOD", float(_summary.get("happiness", 0.0)), UI.MINT))
@@ -116,7 +104,7 @@ func _stat_card() -> Control:
 		["best combo", int(_summary.get("best_combo", 0))],
 	]
 	for r in rows:
-		grid.add_child(UI.label(String(r[0]), UI.FS_SMALL, UI.TEXT_DIM))
+		grid.add_child(UI.wrap_label(String(r[0]), UI.FS_SMALL, UI.TEXT_DIM))
 		var l := UI.label(str(r[1]), UI.FS_SMALL, UI.TEXT)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		grid.add_child(l)
@@ -132,8 +120,8 @@ func _stat_card() -> Control:
 	elif src == "mixed":
 		src_text = "AI %d · script %d" % [ai_n, classic_n]
 		src_color = UI.AMBER
-	grid.add_child(UI.label("chat written by", UI.FS_SMALL, UI.TEXT_DIM))
-	var src_label := UI.label(src_text, UI.FS_SMALL, src_color)
+	grid.add_child(UI.wrap_label("chat written by", UI.FS_SMALL, UI.TEXT_DIM))
+	var src_label := UI.wrap_label(src_text, UI.FS_SMALL, src_color)
 	src_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	grid.add_child(src_label)
 	var acc := UI.label("accuracy  %d%%" % int(round(float(_summary.get("accuracy", 0.0)) * 100.0)),
@@ -193,7 +181,7 @@ func _advice_card() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
 	p.add_child(v)
-	v.add_child(UI.label("WHAT WOULD HAVE HELPED", UI.FS_TINY, UI.TEXT_DIM))
+	v.add_child(UI.wrap_label("WHAT WOULD HAVE HELPED", UI.FS_TINY, UI.TEXT_DIM))
 	for line in _advice():
 		v.add_child(UI.wrap_label("- " + line, UI.FS_SMALL, UI.TEXT))
 	return p

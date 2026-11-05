@@ -18,7 +18,7 @@ import { chromium, devices } from "playwright";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
-const SHOTS = path.join(ROOT, "shots");
+const SHOTS = path.resolve(process.env.E2E_SHOTS || path.join(ROOT, "shots"));
 
 const argv = process.argv.slice(2);
 const arg = (name, dflt) => {
@@ -37,6 +37,8 @@ const USE_AI = !argv.includes("--no-ai");
 const steps = [];
 const errors = [];
 let aiReport = null;
+const pageReports = [];
+let settingsAudit = null;
 let resolveReady = null;
 const readyPromise = new Promise((r) => (resolveReady = r));
 
@@ -189,6 +191,39 @@ function log(...a) {
   console.log("  " + a.join(" "));
 }
 
+async function auditSettingsScroll(page, ctx) {
+  const deadline = Date.now() + 4000;
+  let before;
+  while (Date.now() < deadline) {
+    before = pageReports.findLast(report => report.screen === "SettingsScreen");
+    if (before) break;
+    await page.waitForTimeout(50);
+  }
+  if (!before || before.max_scroll <= 0) throw Error("settings has no scrollable content");
+  if (DESKTOP) {
+    await page.mouse.move(640, 400);
+    await page.mouse.wheel(0, 600);
+  } else {
+    const cdp = await ctx.newCDPSession(page);
+    const box = await page.locator("canvas").boundingBox();
+    const x = box.x + box.width * 0.9;
+    const y = box.y + box.height * 0.82;
+    await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [{x, y}]});
+    for (let i = 1; i <= 12; i++) {
+      await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x, y: y - box.height * 0.48 * i / 12}]});
+      await page.waitForTimeout(25);
+    }
+    await cdp.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
+    await cdp.detach();
+  }
+  await page.waitForTimeout(1300);
+  const after = pageReports.findLast(report => report.screen === "SettingsScreen");
+  if (!after || after.scroll <= before.scroll + 20)
+    throw Error(`settings did not scroll with ${DESKTOP ? "wheel" : "touch"}: ${before.scroll} -> ${after?.scroll}`);
+  await page.screenshot({path: path.join(SHOTS, "settings-scrolled.png")});
+  log(`settings ${DESKTOP ? "wheel" : "touch"} scroll verified: ${before.scroll} -> ${after.scroll}`);
+}
+
 async function main() {
   mkdirSync(SHOTS, { recursive: true });
   // Wipe last run's frames first: a screenshot gate that quietly re-uses an
@@ -206,7 +241,9 @@ async function main() {
   const ctx = await browser.newContext(
     DESKTOP
       ? { viewport: { width: 1280, height: 800 }, hasTouch: false }
-      : { ...devices["iPhone 12"], hasTouch: true, isMobile: true }
+      : argv.includes("--small-phone")
+        ? { viewport: {width: 320, height: 568}, deviceScaleFactor: 2, hasTouch: true, isMobile: true }
+        : { ...devices["iPhone 12"], hasTouch: true, isMobile: true }
   );
   const page = await ctx.newPage();
   // Must be installed before any page script runs, so the bridge picks it up.
@@ -217,6 +254,13 @@ async function main() {
     const m = text.match(/\[e2e\]\s+([A-Za-z0-9_-]+)/);
     if (m) {
       const label = m[1];
+      if (label === "page") {
+        const report = JSON.parse(text.slice(text.indexOf(" page ") + 6));
+        pageReports.push(report);
+        if (report.viewport[0] > report.canvas[0] + 2 || report.content_width > report.canvas[0] + 2)
+          errors.push(`horizontal overflow on ${report.screen}: ${JSON.stringify(report)}`);
+        return;
+      }
       if (label === "ai") {
         aiReport = text.slice(text.indexOf(" ai ") + 4).trim();
         log("  [ai] " + aiReport);
@@ -232,6 +276,7 @@ async function main() {
       steps.push(label);
       log(`[e2e] ${label}`);
       if (label === "menu") resolveReady?.(true);
+      if (label === "settings") settingsAudit = auditSettingsScroll(page, ctx).catch(error => errors.push(error.message));
       const file = path.join(SHOTS, `${String(steps.length).padStart(2, "0")}-${label}.png`);
       page.screenshot({ path: file }).catch((e) => log("screenshot failed: " + e.message));
     }
@@ -268,6 +313,8 @@ async function main() {
     log(`walk finished in ${Math.round((Date.now() - walkStart) / 1000)} s`);
   }
 
+  if (settingsAudit) await settingsAudit;
+  else errors.push("settings scroll audit did not run");
   const canvas = await page.evaluate(() => {
     const c = document.querySelector("canvas");
     if (!c) return { ok: false, why: "no canvas" };
