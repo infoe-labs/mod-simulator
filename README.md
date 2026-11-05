@@ -4,9 +4,8 @@ A cozy, portrait-first **Godot 4** game about moderating a livestream chat in
 real time. You are the moderator of a small VTuber stream; chat scrolls, you
 decide what stays.
 
-Play it in a browser: **<https://USERNAME.github.io/mod-simulator/>**
-(set the real URL in `README` once the repo is pushed, and see
-[Deploying](#deploying)).
+Play it in a browser: **<https://infoe-labs.github.io/mod-simulator/>**
+(see [Deploying](#deploying)).
 
 ![game](shots/06-game-late.png)
 
