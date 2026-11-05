@@ -18,23 +18,23 @@ var _username: Label
 var _chips: Label
 var _text: Label
 var _timer: ProgressBar
-var _timer_track: Panel
+var _timer_fill: StyleBoxFlat
 var _style: StyleBoxFlat
 var _press_pos := Vector2.ZERO
 var _press_time := 0.0
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(0, 132)
+	custom_minimum_size = Vector2(0, 104)
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clip_contents = false
 
 	_style = StyleBoxFlat.new()
 	_style.bg_color = IDLE
 	_style.set_corner_radius_all(16)
-	_style.set_content_margin_all(14)
+	_style.set_content_margin_all(10)
 	_style.shadow_color = Color(0, 0, 0, 0.35)
-	_style.shadow_size = 6
+	_style.shadow_size = 0
 	_style.shadow_offset = Vector2(0, 3)
 	add_theme_stylebox_override("panel", _style)
 
@@ -69,6 +69,8 @@ func _ready() -> void:
 	col.add_child(head)
 	_username = UI.label("", UI.FS_NAME)
 	_username.clip_text = true
+	_username.custom_minimum_size.x = 120.0
+	_username.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(_username)
 	_chips = UI.label("", UI.FS_TINY, UI.TEXT_DIM)
 	# Chips must never hand out the verdict. A real moderator sees role, account
@@ -77,7 +79,7 @@ func _ready() -> void:
 	_chips.clip_text = true
 	_chips.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_chips.size_flags_stretch_ratio = 0.8
 	head.add_child(_chips)
 
 	_text = UI.label("", UI.FS_CHAT)
@@ -112,6 +114,7 @@ func _ready() -> void:
 	fill.set_corner_radius_all(6)
 	fill.set_content_margin_all(0)
 	_timer.add_theme_stylebox_override("fill", fill)
+	_timer_fill = fill
 	track.add_child(_timer)
 
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -190,6 +193,15 @@ func _refresh_strikes(catalog: MessageCatalog) -> void:
 			UI.CORAL if relevant >= 2 else UI.AMBER)
 
 
+func leave_in_chat() -> void:
+	set_focused(false)
+	_timer.get_parent().visible = false
+	_chips.text = ""
+	_strikes.visible = false
+	custom_minimum_size.y = 80
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
 func set_focused(v: bool) -> void:
 	is_focused = v
 	_style.bg_color = FOCUSED_BG if v else IDLE
@@ -198,10 +210,10 @@ func set_focused(v: bool) -> void:
 	_style.border_width_top = 0 if not v else 4
 	_style.border_width_bottom = 0 if not v else 4
 	_style.border_color = UI.VIOLET if v else Color(0, 0, 0, 0)
-	_style.shadow_size = 10 if v else 6
+	_style.shadow_size = 4 if v else 0
 	_style.shadow_color = Color(UI.VIOLET, 0.45) if v else Color(0, 0, 0, 0.35)
 	pivot_offset = size * 0.5
-	scale = Vector2(1.02, 1.02) if v else Vector2.ONE
+	scale = Vector2.ONE
 	_intended_alpha = 1.0 if v else 0.92
 	modulate = Color(1, 1, 1, _intended_alpha) if v else Color(0.86, 0.84, 0.95, _intended_alpha)
 
@@ -216,9 +228,7 @@ func update_timer() -> void:
 		col = UI.CORAL
 	elif f < 0.6:
 		col = UI.AMBER
-	var fill := _timer.get_theme_stylebox("fill").duplicate() as StyleBoxFlat
-	fill.bg_color = col
-	_timer.add_theme_stylebox_override("fill", fill)
+	_timer_fill.bg_color = col
 	_timer.visible = msg.lifetime > 0.0
 
 
@@ -283,6 +293,6 @@ func _on_gui_input(event: InputEvent) -> void:
 		else:
 			var moved := pos.distance_to(_press_pos)
 			var held := float(Time.get_ticks_msec()) / 1000.0 - _press_time
-			if moved < 44.0 and held < 0.9 and msg != null:
+			if moved < 44.0 and held < 0.9 and msg != null and msg.state == "pending":
 				AudioManager.play("click", -6.0, 1.3)
 				tapped.emit(msg.instance_id)

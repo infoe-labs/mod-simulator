@@ -78,7 +78,6 @@ func _ready() -> void:
 		AudioManager.play("open")
 		var m := String(_summary.get("mode", "story"))
 		GameState.pending_mode = m
-		GameState.pending_seed = int(Time.get_unix_time_from_system()) % 1000000
 		Main.goto("res://scenes/Game.tscn", {"mode": m}))
 	root.add_child(again)
 

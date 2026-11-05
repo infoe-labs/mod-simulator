@@ -55,7 +55,11 @@ var _pose := {
 	"head_x": 0.0, "head_z": 0.0, "brow_x": 0.0, "mouth_x": 1.0, "mouth_y": 0.25,
 	"eye_open": 1.0, "bounce": 0.0, "blush": 0.0, "tear": 0.0, "heart": 0.0,
 }
-var _target := _pose.duplicate(true)
+const REST_POSE := {
+	"head_x": 0.0, "head_z": 0.0, "brow_x": 0.0, "mouth_x": 1.0, "mouth_y": 0.25,
+	"eye_open": 1.0, "bounce": 0.0, "blush": 0.0, "tear": 0.0, "heart": 0.0,
+}
+var _target := REST_POSE.duplicate(true)
 
 
 static func default_config() -> Dictionary:
@@ -98,13 +102,17 @@ static func random_config(rng: SplitMix32) -> Dictionary:
 	return c
 
 
-func _init(config: Dictionary = {}) -> void:
+func _init(config: Dictionary = {}, low_quality: bool = false) -> void:
+	_low_quality = low_quality
 	cfg = default_config() if config.is_empty() else config
 	generate(cfg)
 
 
 func set_low_quality(v: bool) -> void:
+	if _low_quality == v:
+		return
 	_low_quality = v
+	generate(cfg)
 
 
 func _mat(color: String, rough: float = 0.85, unshaded: bool = false,
@@ -387,17 +395,21 @@ func set_mood_from_happiness(h: float) -> void:
 		base = "happy"
 	elif h >= 42.0:
 		base = "neutral"
-	elif h >= 22.0:
+	elif h >= 30.0:
+		base = "worried"
+	elif h >= 15.0:
 		base = "upset"
 	else:
 		base = "crying"
-	if _expr_timer <= 0.0 and _expr_default != base:
-		set_expression(base)
+	# Keep the baseline current even while a temporary reaction is playing.
+	_expr_default = base
+	if _expr_timer <= 0.0 and expression != base:
+		expression = base
+		_apply_expression()
 
 
 func _apply_expression() -> void:
-	for k in _target.keys():
-		_target[k] = _pose[k]
+	_target = REST_POSE.duplicate(true)
 	var tears_off := 0.0
 	match expression:
 		"happy":
@@ -415,6 +427,12 @@ func _apply_expression() -> void:
 		"confused":
 			_target.merge({"mouth_x": 0.7, "mouth_y": 0.4, "brow_x": 0.45,
 					"eye_open": 1.0, "head_z": -0.16})
+		"relieved":
+			_target.merge({"mouth_x": 1.3, "mouth_y": 0.5, "brow_x": -0.12,
+					"eye_open": 0.5, "head_x": -0.06, "bounce": 0.18, "blush": 0.3})
+		"worried":
+			_target.merge({"mouth_x": 0.7, "mouth_y": 0.35, "brow_x": 0.32,
+					"eye_open": 0.85, "head_x": 0.08, "head_z": -0.08})
 		"upset":
 			_target.merge({"mouth_x": 0.7, "mouth_y": 0.3, "brow_x": 0.5,
 					"eye_open": 0.62, "head_x": 0.12, "bounce": 0.0})
@@ -473,12 +491,14 @@ func _process(delta: float) -> void:
 	for e in _eyes:
 		e.scale.y = 1.25 * open_amount
 		e.visible = open_amount > 0.1
-	for i in range(0, _pupils.size(), 2):
+	for i in _pupils.size():
 		if i < _pupils.size():
 			_pupils[i].visible = open_amount > 0.18
-			_pupils[i].scale.y = 1.3 * open_amount
-	for b in _brows:
-		b.rotation.x = float(_pose["brow_x"])
+			_pupils[i].scale.y = (1.3 if i % 2 == 0 else 1.0) * open_amount
+	for i in _brows.size():
+		var b := _brows[i]
+		# Rotate in the face plane so the emotion reads from the camera.
+		b.rotation.z = (-1.0 if i == 0 else 1.0) * float(_pose["brow_x"])
 		b.position.y = 0.22 - float(_pose["brow_x"]) * 0.045
 	if _mouth != null:
 		var talking_y := 0.0

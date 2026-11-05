@@ -20,6 +20,8 @@ func _initialize() -> void:
 	_test_escalation()
 	_test_meter_clamp()
 	_test_expiry_once()
+	_test_passive_allow()
+	_test_procedural_chat()
 	_test_bans_persist()
 	_test_difficulty()
 	_test_pause()
@@ -260,7 +262,13 @@ func _test_meter_clamp() -> void:
 func _test_expiry_once() -> void:
 	var s := _sim(31337)
 	s._try_spawn()
-	var m: SimMessage = s.active[0]
+	# Warmup now contains auto-allowed harmless chat. Use actual harassment
+	# to test a missed removal, and isolate it from unrelated new messages.
+	s.active.clear()
+	s.spawn_timer = 999.0
+	var m := SimMessage.from_def(cat.pool("harassment", 3)[0], cat,
+			{"name": "test_hater"}, 999, 0.0, 10.0, 0, 0, bal)
+	s.active.append(m)
 	var before_h := s.happiness
 	var before_t := s.trust
 	m.remaining = 0.01
@@ -406,7 +414,7 @@ func _test_queue_bound() -> void:
 
 func _stream_of(sim: Sim, seconds: float) -> String:
 	var parts: Array = []
-	sim.spawned.connect(func(m: SimMessage): parts.append("%d:%s:%s" % [m.instance_id, m.username, m.def["id"]]))
+	sim.spawned.connect(func(m: SimMessage): parts.append("%d:%s:%s:%s" % [m.instance_id, m.username, m.def["id"], m.text]))
 	_run(sim, seconds)
 	return "|".join(parts)
 
@@ -530,3 +538,48 @@ func _test_save() -> void:
 	check(missing != null and missing.games_played == 0, "missing save falls back to defaults")
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _test_passive_allow() -> void:
+	for category in ["wholesome", "friendly", "question", "joke", "criticism"]:
+		var click := _sim(901)
+		var idle := _sim(901)
+		var signals := []
+		idle.resolved.connect(func(m, result): signals.append(result))
+		for run in [click, idle]:
+			run.spawn_timer = 999.0
+			var msg := SimMessage.from_def(cat.pool(category, 3)[0], cat,
+					{"name": "friendly_test"}, 1, 0.0, 10.0, 0, 0, bal)
+			run.active.append(msg)
+			run.focus_id = 1
+		click.act("allow")
+		idle.active[0].remaining = 0.01
+		idle.tick(0.02)
+		check(click.score == idle.score and click.combo == idle.combo
+				and click.happiness == idle.happiness and click.trust == idle.trust
+				and click.stats == idle.stats, "%s: idle has the same rewards and stats as ALLOW" % category)
+		check(signals.size() == 1 and signals[0].get("passive", false),
+				"%s: automatic allow resolves once with feedback" % category)
+		check(idle.act_timer == 0.0 and idle.active.is_empty(), "automatic allow never blocks the next moderation action")
+
+
+func _test_procedural_chat() -> void:
+	var run := _sim(6543)
+	var texts := {}
+	var varied := 0
+	var unresolved := false
+	var originals := JSON.stringify(cat.messages)
+	for i in 250:
+		var req := run.factory.request(float(i), run.rng, {}, {}, {})
+		if req.is_empty():
+			continue
+		var def: Dictionary = req["def"]
+		var text := String(def["text"])
+		texts[text] = true
+		unresolved = unresolved or text.contains("{") or text.contains("}")
+		for authored in cat.pool(String(def["category"]), 3):
+			if authored["id"] == def["id"] and authored["text"] != text:
+				varied += 1
+	check(texts.size() > 100 and varied > 150, "procedural chat creates varied messages (%d unique, %d remixed)" % [texts.size(), varied])
+	check(not unresolved, "procedural chat expands every grammar token")
+	check(JSON.stringify(cat.messages) == originals, "procedural chat never mutates the shared catalog")

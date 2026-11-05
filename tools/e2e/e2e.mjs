@@ -224,6 +224,7 @@ async function main() {
       }
       // "geom"/"boot"/"start" are diagnostics, not screens to capture.
       if (["boot", "start", "done", "geom", "chat"].includes(label)) {
+        if (label === "done") steps.push(label);
         if (label === "geom" || label === "chat") log("  " + text.slice(text.indexOf(label) + 4, 1800));
         else log(`[e2e] ${label}`);
         return;

@@ -2,8 +2,8 @@ class_name MessageFactory
 extends RefCounted
 
 ## Turns (time, rng, cast history) into the next chat message. Bounded and
-## deterministic: it never invents content, only selects from the dataset, and
-## it will not hand a microphone to someone who has been banned.
+## deterministic: combines chat grammar with authored moderation examples,
+## keeping the policy metadata intact and banned viewers out of the cast.
 
 const FALLBACK_FROM_REPEAT := ["spam", "insult", "mild_troll", "ad"]
 const RECENT_MEMORY := 8
@@ -14,6 +14,33 @@ var director: DifficultyDirector
 
 var _ladder := {}          # category -> username we are escalating
 var _recent_ids: Array = []
+var _thread := ""
+var _thread_until := 0.0
+var _last_friendly := ""
+
+const MOMENTS := ["that jump scare", "the boss fight", "the scuffed mic", "that clutch", "the loading screen", "the accidental speedrun", "the background music", "that plot twist"]
+const CHAT_GRAMMAR := {
+	"wholesome": ["{moment} made my night {emote}", "{praise}, needed this stream today {emote}", "chat can we appreciate {thing} {emote}", "{praise}!! {emote}"],
+	"friendly": ["{hello} chat {emote}", "{hello}, {activity}", "{activity} and watching {moment} {emote}", "{moment} {emote}"],
+	"question": ["chat does anyone know {question}?", "wait {question}?", "{question}? just got here", "@{regular} {question}?"],
+	"joke": ["{moment} any% speedrun {emote}", "{moment} was the real final boss {emote}", "my last braincell during {moment} {emote}", "@{regular} we're never living {moment} down {emote}"],
+	"criticism": ["{critique}", "{critique}, still enjoying the stream tho", "imo {critique}", "@{regular} yeah {critique}"],
+}
+const FILLERS := {
+	"praise": ["such a comfy stream", "your commentary is so good", "love the energy tonight", "this community is so sweet", "you handled that so well"],
+	"thing": ["the cozy vibes", "the soundtrack", "that timing", "the commentary", "this community"],
+	"hello": ["yo", "heyy", "evening", "first time here hi", "lurk mode on", "just got home hi"],
+	"activity": ["making noodles", "watching from the couch", "avoiding my homework", "drawing along", "folding laundry", "on my lunch break"],
+	"question": ["what game this is", "when the next stream is", "if the music has a playlist", "which difficulty this is", "how long we've been live", "if this is a first playthrough"],
+	"critique": ["the game audio could be a little lower", "i preferred the last map", "that route seemed slower", "the camera shake is a bit much for me", "the tutorial could explain this better", "i don't think that build works here"],
+}
+const EMOTES := {
+	"wholesome": ["<3", "FeelsGoodMan", "uwu", "<3 <3"],
+	"friendly": ["heyhey", "LUL", "ooo", "", ""],
+	"question": ["", ""],
+	"joke": ["LUL", "KEKW", "ICANT", "pepeLaugh"],
+	"criticism": ["", ""],
+}
 
 
 func _init(cat: MessageCatalog, balance: Balance, dirn: DifficultyDirector) -> void:
@@ -25,6 +52,9 @@ func _init(cat: MessageCatalog, balance: Balance, dirn: DifficultyDirector) -> v
 func reset() -> void:
 	_ladder.clear()
 	_recent_ids.clear()
+	_thread = ""
+	_thread_until = 0.0
+	_last_friendly = ""
 
 
 ## Returns {"def": Dictionary, "user": Dictionary} or an empty Dictionary when
@@ -57,7 +87,35 @@ func request(t: float, rng: SplitMix32, users: Dictionary, banned: Dictionary,
 	var pool := catalog.pool(category, tier)
 	var chosen: Dictionary = _pick_def(pool, rng)
 	_remember(chosen)
-	return {"def": chosen, "user": user}
+	var generated := chosen.duplicate(true)
+	if CHAT_GRAMMAR.has(category):
+		# Nearby posts share a topic and refer to a previous friendly viewer.
+		if t >= _thread_until or _thread == "":
+			_thread = String(rng.pick(MOMENTS))
+			_thread_until = t + rng.range_f(12.0, 24.0)
+		var text := String(rng.pick(CHAT_GRAMMAR[category]))
+		text = text.replace("{moment}", _thread)
+		text = text.replace("{regular}", _last_friendly if _last_friendly != "" else "chat")
+		text = text.replace("{emote}", String(rng.pick(EMOTES[category])))
+		for token in FILLERS:
+			if text.contains("{" + token + "}"):
+				text = text.replace("{" + token + "}", String(rng.pick(FILLERS[token])))
+		generated["severity"] = 0
+		generated["alt_actions"] = []
+		generated["text"] = text.strip_edges()
+		generated["explanation"] = "Ordinary conversation, reactions and disagreement are welcome. Leave this message in chat."
+		_last_friendly = String(user["name"])
+	else:
+		# Preserve the meaning of nuanced abuse examples; vary delivery only.
+		var text := String(chosen["text"])
+		if rng.next_float() < 0.6:
+			text = text.to_lower()
+		if category == "spam" and String(chosen["ideal_action"]) != "allow":
+			text = (text + " ").repeat(2 + rng.next_int() % 2).strip_edges().left(240)
+		elif rng.next_float() < 0.35:
+			text += String(rng.pick(["...", "!!", " lol"]))
+		generated["text"] = text
+	return {"def": generated, "user": user}
 
 
 func pick_user(category: String, rng: SplitMix32, users: Dictionary, banned: Dictionary,

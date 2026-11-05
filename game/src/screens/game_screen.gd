@@ -4,7 +4,8 @@ extends Control
 ## The whole play session: the 3D desk behind, the streaming app aligned to
 ## the laptop display in front, and the moderation tray you actually touch.
 
-const ROW_POOL := 10
+const ROW_POOL := 40
+const FEEDBACK_LIMIT := 30
 
 var sim: Sim = null
 var mode: String = "story"
@@ -20,6 +21,13 @@ var _frame: PanelContainer
 var _frame_body: VBoxContainer
 var _toast: Control
 var _modal: Control
+var _feedback: PanelContainer
+var _feedback_scroll: ScrollContainer
+var _feedback_entries: VBoxContainer
+var _feedback_seconds := 0.0
+var _desktop_feedback := false
+var _feedback_close: Button
+var _mobile_feedback_card: Control
 
 var _live_dot: Panel
 var _title_label: Label
@@ -61,6 +69,8 @@ var _rows := {}
 var _last_total := -1
 var _pitch := 0.9
 var _quality := "high"
+var _run_seed := 0
+var _banner_label: Label
 var _last_happy_shown := 50.0
 var _last_trust_shown := 35.0
 var _banner_tween: Tween
@@ -73,12 +83,17 @@ var _resume_existing := false
 func with_params(params: Dictionary) -> void:
 	mode = String(params.get("mode", "story"))
 	_resume_existing = bool(params.get("resume", false))
+	_run_seed = int(params.get("seed", 0))
 	_jump = float(params.get("jump", 0.0))
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_quality = _detect_quality()
+	if _resume_existing and GameState.sim != null:
+		_run_seed = GameState.sim.seed_value
+	if _run_seed == 0:
+		_run_seed = int(Time.get_unix_time_from_system() * 1000.0) ^ int(Time.get_ticks_usec())
 	_build_background()
 	_build_world()
 	_build_frame()
@@ -112,6 +127,7 @@ func _build_background() -> void:
 func _build_world() -> void:
 	_world_host = SubViewportContainer.new()
 	_world_host.stretch = true
+	_world_host.stretch_shrink = 2
 	_world_host.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_world_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_world_host)
@@ -135,7 +151,6 @@ func _build_frame() -> void:
 	# PASS, not STOP: the panel itself must never absorb a tap meant for a
 	# button that is drawn on top of it.
 	_frame.mouse_filter = Control.MOUSE_FILTER_PASS
-	_frame.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_frame)
 
 	var outer := VBoxContainer.new()
@@ -169,7 +184,7 @@ func _build_frame() -> void:
 	# Honesty chip: who is writing tonight's chat. It reads the sim's own
 	# counters, so it can only ever say AI once the model has really spoken.
 	_source_chip = UI.label("SCRIPT", UI.FS_TINY, UI.TEXT_FAINT)
-	_source_chip.custom_minimum_size = Vector2(0, 46)
+	_source_chip.custom_minimum_size = Vector2(100, 46)
 	_source_chip.clip_text = true
 	head.add_child(_source_chip)
 
@@ -180,6 +195,7 @@ func _build_frame() -> void:
 
 	_viewers_label = UI.label("VIEWERS 0", UI.FS_SMALL, UI.SKY)
 	_viewers_label.custom_minimum_size = Vector2(110, 0)
+	_viewers_label.clip_text = true
 	_viewers_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	head.add_child(_viewers_label)
 
@@ -213,6 +229,7 @@ func _build_frame() -> void:
 	# ---- the streamer feed ----
 	_stage_host = SubViewportContainer.new()
 	_stage_host.stretch = true
+	_stage_host.stretch_shrink = 2 if _quality == "low" else 1
 	_stage_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_stage_host.custom_minimum_size = Vector2(0, 300)
@@ -226,15 +243,15 @@ func _build_frame() -> void:
 	# The SubViewportContainer (stretch = true) owns the viewport size.
 	_stage_host.add_child(_stage_vp)
 
-	var seed_v := int(GameState.pending_seed)
+	var seed_v := _run_seed
 	var vr := SplitMix32.new(seed_v ^ 0x7E4B)
-	_stage = VTuberStage.new(ProceduralVTuber.random_config(vr))
+	_stage = VTuberStage.new(ProceduralVTuber.random_config(vr), _quality)
 	_stage.set_quality(_quality)
 	_stage_vp.add_child(_stage)
 
 	_bubble = UI.panel(Color(UI.PANEL_LIGHT, 0.94), 18, 12, UI.PINK)
 	_bubble.visible = false
-	_bubble.z_index = 5
+	_bubble.z_index = 15
 	add_child(_bubble)
 	_bubble_label = UI.wrap_label("", UI.FS_SMALL, UI.TEXT)
 	_bubble.add_child(_bubble_label)
@@ -274,7 +291,7 @@ func _build_frame() -> void:
 	var hints := HBoxContainer.new()
 	hints.add_theme_constant_override("separation", 10)
 	outer.add_child(hints)
-	_hint = UI.label("tap a message to pick it · 1 / 2 / 3 on a keyboard",
+	_hint = UI.label("Harmless chat stays automatically · tap to moderate",
 			UI.FS_TINY, UI.TEXT_FAINT)
 	_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	# Long helper text must never dictate the panel's minimum width.
@@ -355,6 +372,31 @@ func _build_toasts() -> void:
 	_toast.z_index = 20
 	_toast.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(_toast)
+	_feedback = UI.panel(UI.PANEL, 18, 12, UI.PANEL_LINE)
+	_feedback.mouse_filter = Control.MOUSE_FILTER_PASS
+	_toast.add_child(_feedback)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6)
+	_feedback.add_child(body)
+	var header := HBoxContainer.new()
+	body.add_child(header)
+	var title := UI.label("MODERATION LOG", UI.FS_TINY, UI.TEXT_DIM)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	_feedback_close = UI.button("×", UI.FS_SMALL)
+	_feedback_close.custom_minimum_size = Vector2(76, 76)
+	_feedback_close.pressed.connect(func(): _feedback_seconds = 0.0; _feedback.visible = false)
+	header.add_child(_feedback_close)
+	_feedback_scroll = ScrollContainer.new()
+	_feedback_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_feedback_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(_feedback_scroll)
+	_feedback_entries = VBoxContainer.new()
+	_feedback_entries.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_feedback_entries.add_theme_constant_override("separation", 12)
+	_feedback_scroll.add_child(_feedback_entries)
+	_feedback_entries.add_child(UI.wrap_label("Your decisions appear here. Harmless chat is allowed automatically.", UI.FS_TINY, UI.TEXT_DIM))
+	_feedback.visible = false
 
 
 func _build_modal() -> void:
@@ -369,9 +411,7 @@ func _build_modal() -> void:
 # ------------------------------------------------------------------- flow
 
 func _begin() -> void:
-	var seed_v := GameState.pending_seed
-	if seed_v == 0:
-		seed_v = int(Time.get_unix_time_from_system()) % 1000000
+	var seed_v := _run_seed
 	# Coming back from Settings keeps the same run; otherwise start fresh.
 	if _resume_existing and GameState.sim != null and not GameState.sim.is_over():
 		sim = GameState.sim
@@ -390,8 +430,8 @@ func _begin() -> void:
 	sim.victory_locked.connect(_on_victory_locked)
 	if not _resume_existing or sim.state == Sim.State.READY:
 		sim.start()
-		for m in sim.active:
-			_on_spawned(m)
+	for m in sim.active:
+		_on_spawned(m)
 	_started = true
 	_title_label.text = sim.title
 	if _jump > 0.0 and sim.state == Sim.State.RUNNING:
@@ -413,6 +453,9 @@ func _process(delta: float) -> void:
 		return
 	if sim.is_running():
 		sim.tick(delta)
+	if not _paused:
+		_feedback_seconds = maxf(0.0, _feedback_seconds - delta)
+	_feedback.visible = _desktop_feedback or _feedback_seconds > 0.0
 	# Smoothly-eased meters so the bar glides instead of jumping.
 	_last_happy_shown = lerpf(_last_happy_shown, sim.happiness, clampf(delta * 6.0, 0.0, 1.0))
 	_last_trust_shown = lerpf(_last_trust_shown, sim.trust, clampf(delta * 6.0, 0.0, 1.0))
@@ -435,6 +478,9 @@ func _process(delta: float) -> void:
 	if int(sim.stats["total"]) != _last_total:
 		_last_total = int(sim.stats["total"])
 		_viewers_label.text = "VIEWERS %s" % _fmt_count(sim.viewer_count)
+	_score_label.text = str(sim.score)
+	_combo_label.text = "×%d" % sim.combo if sim.combo >= 2 else ""
+	_combo_label.custom_minimum_size.x = 90.0 if sim.combo >= 2 else 0.0
 	_update_tray_header()
 
 
@@ -464,19 +510,6 @@ func _act(action: String) -> void:
 		AudioManager.play("combo")
 		_haptics(25)
 	_stage.say_for(1.1)
-	var row: ChatMessageRow = _rows.get(target.instance_id)
-	if row != null and is_instance_valid(row):
-		_popup_over(row, res)
-		_rows.erase(target.instance_id)
-		match action:
-			"allow":
-				row.animate_out(-1.0)
-			"delete":
-				row.animate_out(1.0)
-			"ban":
-				row.animate_out(1.0)
-	else:
-		_popup_center(res)
 	_flash(action, bool(res.get("correct", false)))
 	_refresh_focus()
 
@@ -507,6 +540,7 @@ func _unhandled_input(event: InputEvent) -> void:
 # ------------------------------------------------------------------ signals
 
 func _on_spawned(m: SimMessage) -> void:
+	var follow := _scroll.scroll_vertical + _scroll.size.y >= _tray.size.y - 48.0
 	var row := ChatMessageRow.new()
 	_tray.add_child(row)
 	row.bind(m, ContentDB.cat())
@@ -514,8 +548,9 @@ func _on_spawned(m: SimMessage) -> void:
 	_rows[m.instance_id] = row
 	row.animate_in()
 	AudioManager.play("msg_new", -14.0, rng_pitch())
-	if _rows.size() > ROW_POOL + 6:
-		_trim_rows()
+	_trim_rows()
+	if follow:
+		_scroll_to_latest.call_deferred()
 
 
 func rng_pitch() -> float:
@@ -524,13 +559,21 @@ func rng_pitch() -> float:
 
 
 func _trim_rows() -> void:
-	var keys := _rows.keys()
-	while keys.size() > ROW_POOL:
-		var k = keys.pop_front()
-		var r: ChatMessageRow = _rows.get(k)
-		_rows.erase(k)
-		if r != null and is_instance_valid(r):
-			r.queue_free()
+	# History is bounded independently of pending moderation messages.
+	var excess := _tray.get_child_count() - ROW_POOL
+	for child in _tray.get_children():
+		if excess <= 0:
+			break
+		if child is ChatMessageRow and child.msg.state != "pending":
+			_tray.remove_child(child)
+			child.queue_free()
+			excess -= 1
+
+
+func _scroll_to_latest() -> void:
+	# Containers update their scrollbar range after the current layout pass.
+	await get_tree().process_frame
+	_scroll.scroll_vertical = int(_scroll.get_v_scroll_bar().max_value)
 
 
 func _on_row_tapped(instance_id: int) -> void:
@@ -540,10 +583,25 @@ func _on_row_tapped(instance_id: int) -> void:
 
 
 func _on_resolved(m: SimMessage, res: Dictionary) -> void:
-	var mood := String(res.get("mood", "neutral"))
-	_stage.react(mood, 1.9)
+	var reaction := String(res.get("mood", "neutral"))
 	if bool(res.get("correct", false)):
-		_stage.set_mood_from_happiness(sim.happiness)
+		if m.action in ["delete", "ban"] and sim.happiness < 45.0:
+			reaction = "relieved"
+		elif m.category == "joke":
+			reaction = "laughing"
+		elif sim.combo >= 5 and sim.happiness >= 70.0:
+			reaction = "excited"
+	_stage.react(reaction, 2.8)
+	var row: ChatMessageRow = _rows.get(m.instance_id)
+	if row != null and is_instance_valid(row):
+		row.reveal_category(ContentDB.cat(), m.action)
+		_rows.erase(m.instance_id)
+		if m.action == "allow":
+			row.leave_in_chat()
+		else:
+			row.animate_out(1.0)
+	_spawn_popup(Vector2.ZERO, res)
+	_refresh_focus()
 
 
 func _on_expired(m: SimMessage, res: Dictionary) -> void:
@@ -552,7 +610,8 @@ func _on_expired(m: SimMessage, res: Dictionary) -> void:
 		row.reveal_category(ContentDB.cat(), "nobody")
 		_rows.erase(m.instance_id)
 		row.animate_out(1.0)
-	_stage.react(String(res.get("mood", "upset")), 2.4)
+	_spawn_popup(Vector2.ZERO, res)
+	_stage.react(String(res.get("mood", "upset")), 3.2)
 	_flash("expire", false)
 
 
@@ -662,6 +721,7 @@ func _update_source_chip() -> void:
 		text = "AI OFFLINE"
 		color = UI.AMBER
 	_source_chip.text = text
+	_source_chip.tooltip_text = text
 	_source_chip.add_theme_color_override("font_color", color)
 
 
@@ -695,57 +755,78 @@ func _popup_center(res: Dictionary) -> void:
 
 func _spawn_popup(at: Vector2, res: Dictionary) -> void:
 	var correct := bool(res.get("correct", false))
-	var exact := bool(res.get("exact", false))
-	var verdict := String(res.get("verdict", ""))
-	var pts := int(res.get("points", 0))
-	var main := "+%d  %s" % [pts, verdict] if correct else verdict
-	var col := UI.MINT
-	if not correct:
-		col = UI.CORAL
-	elif not exact:
+	var col := UI.MINT if correct else UI.CORAL
+	if correct and not bool(res.get("exact", false)):
 		col = UI.AMBER
-	var r := _frame_rect()
-	var w: float = clampf(r.size.x * 0.8, 240.0, 460.0)
-	var card := UI.panel(Color(UI.PANEL, 0.96), 18, 14, col)
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.z_index = 25
-	card.custom_minimum_size = Vector2(w, 0)
-	var text_w: float = maxf(120.0, w - 28.0)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	card.add_child(box)
-	var l := UI.wrap_label(main, UI.FS_SECTION, col)
-	l.custom_minimum_size = Vector2(text_w, 0)
-	box.add_child(l)
-	var sub := UI.wrap_label(ModerationEngine.feedback_line(res), UI.FS_SMALL, UI.TEXT)
-	sub.custom_minimum_size = Vector2(text_w, 0)
-	box.add_child(sub)
-	# The teaching line: what it actually was, and what the best call was.
 	var m: SimMessage = res.get("message", null)
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", 3)
+	var action := "AUTO ALLOW" if bool(res.get("passive", false)) else String(res.get("action", "")).to_upper()
+	var heading := "%s · %s" % [action, String(res.get("verdict", ""))]
+	card.add_child(UI.wrap_label(heading, UI.FS_TINY, col))
 	if m != null:
-		var was := UI.wrap_label("was  %s   ·   best  %s" % [
-				ContentDB.cat().label(m.category), String(m.ideal).to_upper()],
-				UI.FS_TINY, UI.TEXT_FAINT)
-		was.custom_minimum_size = Vector2(text_w, 0)
-		box.add_child(was)
-	card.position = Vector2(
-			clampf(at.x, r.position.x + 8.0, maxf(r.position.x + 8.0, r.end.x - w - 8.0)),
-			clampf(at.y, r.position.y + 60.0, maxf(r.position.y + 60.0, r.end.y - 240.0)))
-	_toast.add_child(card)
-	# Start fully visible: if the tween never runs (paused tree, backgrounded
-	# tab) the feedback still shows and then gets cleaned up below.
-	var tw := create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(card, "position:y", card.position.y - 90.0, 0.9).set_trans(
-			Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(card, "modulate:a", 0.0, 0.9).set_ease(Tween.EASE_IN)
-	tw.chain().tween_callback(func():
-		if is_instance_valid(card):
-			card.queue_free())
-	# Failsafe cleanup if the tween is interrupted by a pause.
-	get_tree().create_timer(2.0).timeout.connect(func():
-		if is_instance_valid(card):
-			card.queue_free())
+		var excerpt := UI.wrap_label("%s: %s" % [m.username, m.text], UI.FS_TINY, UI.TEXT_DIM)
+		excerpt.set_meta("desktop_only", true)
+		card.add_child(excerpt)
+	card.add_child(UI.wrap_label(ModerationEngine.feedback_line(res), UI.FS_TINY, UI.TEXT))
+	if m != null:
+		var detail := "%s · best: %s · +%d pts" % [ContentDB.cat().label(m.category), m.ideal.to_upper(), int(res.get("points", 0))]
+		var best := UI.wrap_label(detail, UI.FS_TINY, col)
+		best.set_meta("desktop_text", detail)
+		best.set_meta("mobile_text", "Best: %s · +%d pts" % [m.ideal.to_upper(), int(res.get("points", 0))])
+		card.add_child(best)
+	if _feedback_entries.get_child_count() > 0 and _feedback_entries.get_child(0) is Label:
+		var placeholder := _feedback_entries.get_child(0)
+		_feedback_entries.remove_child(placeholder)
+		placeholder.queue_free()
+	_feedback_entries.add_child(card)
+	while _feedback_entries.get_child_count() > FEEDBACK_LIMIT:
+		var oldest := _feedback_entries.get_child(0)
+		_feedback_entries.remove_child(oldest)
+		oldest.queue_free()
+	# Quiet auto-allows belong in the log without constantly reopening the
+	# phone overlay or extending it forever during friendly conversation.
+	if not bool(res.get("passive", false)):
+		_mobile_feedback_card = card
+		_feedback_seconds = 10.0
+	_feedback.visible = _desktop_feedback or _feedback_seconds > 0.0
+	_layout_feedback()
+	_follow_feedback.call_deferred()
+
+
+func _follow_feedback() -> void:
+	await get_tree().process_frame
+	_feedback_scroll.scroll_vertical = int(_feedback_scroll.get_v_scroll_bar().max_value) if _desktop_feedback else 0
+
+
+func _layout_feedback() -> void:
+	if _feedback == null:
+		return
+	var fr := _frame_rect()
+	_feedback_close.visible = not _desktop_feedback
+	if _desktop_feedback:
+		_feedback.position = Vector2(fr.end.x + 16.0, fr.position.y)
+		_feedback.size = Vector2(330.0, fr.size.y)
+	else:
+		# Phone: put feedback over the video, above the chat and thumb controls.
+		var w := minf(fr.size.x - 24.0, 520.0)
+		_feedback.position = fr.position + Vector2(fr.size.x - w - 12.0, 150.0)
+		if _stage_host.visible:
+			_feedback.position.y = _stage_host.global_position.y
+		_feedback.size = Vector2(w, 230.0)
+	var text_w := maxf(100.0, _feedback.size.x - 38.0)
+	# Desktop keeps scrollable history; the phone card shows the newest verdict
+	# in full, so scrolling to the bottom cannot clip its heading away.
+	var latest := _feedback_entries.get_child_count() - 1
+	for i in _feedback_entries.get_child_count():
+		var entry := _feedback_entries.get_child(i) as Control
+		entry.visible = _desktop_feedback or entry == _mobile_feedback_card or (not is_instance_valid(_mobile_feedback_card) and i == latest)
+	for label in _feedback_entries.find_children("*", "Label", true, false):
+		label.custom_minimum_size.x = text_w
+		label.visible = _desktop_feedback or not label.has_meta("desktop_only")
+		if label.has_meta("mobile_text"):
+			label.text = label.get_meta("desktop_text" if _desktop_feedback else "mobile_text")
+	_feedback.visible = _desktop_feedback or _feedback_seconds > 0.0
 
 
 func _flash(kind: String, correct: bool) -> void:
@@ -798,6 +879,9 @@ func _banner(text: String, color: Color) -> void:
 	_toast.add_child(b)
 	if _banner_tween != null and _banner_tween.is_valid():
 		_banner_tween.kill()
+	if is_instance_valid(_banner_label):
+		_banner_label.queue_free()
+	_banner_label = b
 	_banner_tween = create_tween()
 	_banner_tween.tween_property(b, "modulate:a", 1.0, 0.18)
 	_banner_tween.tween_interval(1.5)
@@ -984,11 +1068,13 @@ func _layout() -> void:
 	# rows falling off the bottom of the screen). The world stays behind it and
 	# the streamer feed inside it, so the desk still reads as one scene.
 	var aligned := bounds
-	if not portrait:
-		# Landscape: keep the panel narrow enough that the room shows either side.
-		var w: float = minf(bounds.size.x, maxf(420.0, bounds.size.y * 0.92))
-		aligned = Rect2(bounds.position.x + (bounds.size.x - w) * 0.5,
+	_desktop_feedback = not portrait and bounds.size.x >= 1100.0
+	if _desktop_feedback:
+		var w := minf(bounds.size.x - 346.0, 1100.0)
+		aligned = Rect2(bounds.position.x + (bounds.size.x - w - 346.0) * 0.5,
 				bounds.position.y, w, bounds.size.y)
+	elif not portrait:
+		aligned = bounds
 
 	_frame.position = aligned.position
 	_frame.size = aligned.size
@@ -1039,14 +1125,14 @@ func _layout() -> void:
 		_scroll.size_flags_stretch_ratio = 1.15
 		var feed_w: float = maxf(160.0, aligned.size.x * 0.34)
 		_stage_host.custom_minimum_size = Vector2(feed_w, 0)
-		_scroll.custom_minimum_size = Vector2(210.0, 0)
+		_scroll.custom_minimum_size = Vector2(210.0, row_h)
 		_stage_host.visible = true
-		var feed_room: float = _frame.get_combined_minimum_size().y
-		_stage.fit(aligned.size.x / maxf(1.0, maxf(120.0, aligned.size.y - feed_room + 200.0)))
+		_stage.fit(maxf(160.0, _stage_host.size.x) / maxf(120.0, _stage_host.size.y))
 		_layout_bubble()
 		_refresh_focus()
 		_frame.position = aligned.position
 		_frame.size = aligned.size
+		_layout_feedback()
 		return
 	_stage_host.custom_minimum_size = Vector2(0, 0)
 	_scroll.custom_minimum_size = Vector2(0, 0)
@@ -1069,6 +1155,7 @@ func _layout() -> void:
 	_frame.position = aligned.position
 	_frame.size = aligned.size
 	_layout_bubble()
+	_layout_feedback()
 	_refresh_focus()
 
 
@@ -1125,3 +1212,9 @@ func _notification(what: int) -> void:
 		call_deferred("_layout")
 	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		auto_pause()
+
+
+func _exit_tree() -> void:
+	# In portrait the reusable split container is intentionally detached.
+	if is_instance_valid(_split) and _split.get_parent() == null:
+		_split.free()

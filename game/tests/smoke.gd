@@ -30,6 +30,7 @@ func _initialize() -> void:
 	]:
 		await _boot_scene(scene_path)
 
+	_test_streamer()
 	await _play_a_session()
 	await _boot_scene("res://scenes/Game.tscn")
 
@@ -150,3 +151,32 @@ func _play_a_session() -> void:
 		_check(summary.has("score") and summary.has("trust"),
 				"summary carries the score + meters")
 	game.free()
+
+
+func _test_streamer() -> void:
+	var first := ProceduralVTuber.random_config(SplitMix32.new(120))
+	var replay := ProceduralVTuber.random_config(SplitMix32.new(120))
+	var second := ProceduralVTuber.random_config(SplitMix32.new(121))
+	_check(first == replay and first != second, "streamer appearance is varied and seed reproducible")
+	var avatar := ProceduralVTuber.new(first)
+	root.add_child(avatar)
+	avatar.set_expression("crying")
+	avatar._process(1.0)
+	avatar.set_expression("happy")
+	_check(avatar._target["head_x"] == 0.0 and avatar._target["tear"] == 0.0,
+			"sad pose and tears do not leak into happy expressions")
+	avatar.react("shocked", 0.1)
+	avatar.set_mood_from_happiness(10.0)
+	avatar._process(0.2)
+	_check(avatar.expression == "crying", "temporary reactions return to the latest baseline mood")
+	avatar.set_mood_from_happiness(35.0)
+	_check(avatar.expression == "worried", "middling mood has a distinct worried expression")
+	avatar.set_mood_from_happiness(95.0)
+	_check(avatar.expression == "excited", "great nights have an excited expression")
+	avatar.free()
+	var stage := VTuberStage.new(first)
+	root.add_child(stage)
+	stage.fit(1.5)
+	_check(stage.camera.position.distance_to(Vector3(0, 1.02, 0)) > 3.0,
+			"camera leaves room for hair, shoulders and expressions")
+	stage.free()

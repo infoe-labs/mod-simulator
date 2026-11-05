@@ -16,7 +16,8 @@ var ai: AIChatManager = null
 
 
 func _process(delta: float) -> void:
-	if ai != null:
+	if ai != null and (sim == null or not sim.is_running()):
+		# Running simulations tick the manager themselves.
 		ai.tick(delta)
 
 
