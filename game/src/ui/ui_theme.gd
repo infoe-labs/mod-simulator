@@ -267,7 +267,9 @@ static func button(text: String, size: int = FS_BODY + 2) -> Button:
 	b.text = text
 	b.add_theme_font_size_override("font_size", size)
 	b.custom_minimum_size.y = MIN_TAP
+	b.mouse_filter = Control.MOUSE_FILTER_PASS
 	b.focus_mode = Control.FOCUS_ALL
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.flat = false
 	return b
 
@@ -291,6 +293,7 @@ static func panel(bg: Color = PANEL, radius: int = 18, margin: int = 14,
 	sb.border_width_top = 1
 	sb.border_width_bottom = 1
 	sb.border_color = border
+	p.mouse_filter = Control.MOUSE_FILTER_PASS
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
@@ -321,6 +324,8 @@ static func tinted_button(text: String, base: Color, dark: Color,
 	b.text = text
 	b.add_theme_font_size_override("font_size", font_size)
 	b.custom_minimum_size = Vector2(0, MIN_TAP)
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	b.mouse_filter = Control.MOUSE_FILTER_PASS
 	b.focus_mode = Control.FOCUS_ALL
 	# The label ink is chosen from the *drawn* background, and the background is
 	# the theme colour itself: darkening it here used to make ALLOW/DELETE/BAN

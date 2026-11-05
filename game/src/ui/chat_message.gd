@@ -117,7 +117,7 @@ func _ready() -> void:
 	_timer_fill = fill
 	track.add_child(_timer)
 
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	gui_input.connect(_on_gui_input)
 
 
@@ -287,6 +287,8 @@ func _on_gui_input(event: InputEvent) -> void:
 		else:
 			pressed = event.pressed
 			pos = event.position
+		# Compare in canvas coordinates: the row itself moves during a swipe.
+		pos = get_global_transform_with_canvas() * pos
 		if pressed:
 			_press_pos = pos
 			_press_time = float(Time.get_ticks_msec()) / 1000.0

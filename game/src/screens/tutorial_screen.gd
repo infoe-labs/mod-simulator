@@ -61,6 +61,7 @@ var _verdict_label: Label
 var _next: Button
 var _dots: Label
 var _answered := false
+var _page: ScrollPage
 
 
 func _ready() -> void:
@@ -92,18 +93,10 @@ func _build_stage() -> void:
 
 
 func _build_ui() -> void:
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	Main.apply_safe_margins(margin)
-	margin.add_theme_constant_override("margin_left", 22)
-	margin.add_theme_constant_override("margin_right", 22)
-	margin.add_theme_constant_override("margin_top", 18)
-	margin.add_theme_constant_override("margin_bottom", 18)
-	add_child(margin)
-
-	var root := VBoxContainer.new()
+	_page = ScrollPage.new(22)
+	add_child(_page)
+	var root := _page.content
 	root.add_theme_constant_override("separation", 12)
-	margin.add_child(root)
 
 	var bar := HBoxContainer.new()
 	root.add_child(bar)
@@ -163,6 +156,7 @@ func _build_ui() -> void:
 
 
 func _show() -> void:
+	_page.scroll_vertical = 0
 	var step: Dictionary = STEPS[_index]
 	_dots.text = "%d / %d" % [_index + 1, STEPS.size()]
 	_head.text = String(step["head"])
@@ -243,6 +237,7 @@ func _answer(action: String) -> void:
 	_actions.visible = false
 	_next.visible = true
 	_next.text = "NEXT"
+	_page.ensure_control_visible.call_deferred(_next)
 	_stage.react(String(res["mood"]), 2.0)
 	AudioManager.play("allow" if correct else "error")
 

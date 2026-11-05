@@ -980,10 +980,11 @@ func _rebuild_modal(from_start: bool) -> void:
 	_modal.visible = true
 	_modal.move_to_front()
 
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_modal.add_child(center)
+	var page := ScrollPage.new()
+	_modal.add_child(page)
+	var center := page.content
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	center.alignment = BoxContainer.ALIGNMENT_CENTER
 	var panel := UI.panel(UI.PANEL, 24, 26, UI.PANEL_LINE)
 	panel.mouse_filter = Control.MOUSE_FILTER_PASS
 	center.add_child(panel)

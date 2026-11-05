@@ -157,6 +157,7 @@ SKIP_BROWSER=1 tools/check_all.sh   # engine and python gates only
 | `... -s res://tests/sim_tests.gd` | balance: ideal play wins, ordinary play is a real challenge, random/allow-all/ban-all lose, Relaxed easier than story |
 | `... -s res://tests/smoke.gd` | autoloads, every screen instantiates, a live run can be moderated, pause/resume, row recycling, results hand-off |
 | `... -s res://tests/layout_audit.gd` | chat tray never collapses, rows have real size and opacity, decision buttons on screen and thumb-sized, popups and the speech bubble never collapse to one character per line, **label contrast measured against the background actually painted** |
+| `... -s res://tests/mobile_ui.gd` | menu, settings, tutorial steps, results, ending choices and pause overlay at narrow/short/landscape sizes; real touch swipes and wheel input; no horizontal overflow; bottom controls reachable |
 | `... -s res://tests/pause_input.gd` | the pause overlay is on top, processes while paused, keeps every button visible, focusable and thumb-sized, and each button's signal is wired to its effect |
 | `... -s res://tests/ai_tests.gd` | the AI contract without a model: schema validation, category/policy clamps, the safety floor that re-scores abuse disguised as a compliment, queue bounds, banned identities, fallback when no bridge exists, honesty of the chat-source label, and that Classic Mode is still bit-identical with the AI code in the loop |
 | `python3 tools/check_palette.py` | theme palette: WCAG contrast, font-size floors, 44 CSS px touch targets on a 390 pt phone |
@@ -170,6 +171,7 @@ The browser pass, if you want to run it on its own:
 cd tools/e2e && npm install
 python3 -m pip install -r tools/requirements.txt   # Pillow, for the screenshot gate
 node e2e.mjs --url http://127.0.0.1:8000/
+node e2e.mjs --small-phone --url http://127.0.0.1:8000/   # 320 × 568 CSS px
 python3 tools/check_shots.py        # from the repo root
 
 # and the slow one, which actually downloads a model and runs it:
